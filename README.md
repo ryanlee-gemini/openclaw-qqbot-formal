@@ -43,154 +43,6 @@ Scan to join the QQ group chat
 
 ---
 
-## 📸 Feature Showcase
-
-> **Note:** This plugin serves as a **message channel** only — it relays messages between QQ and OpenClaw. Capabilities like image understanding, voice transcription, drawing, etc. depend on the **AI model** you configure and the **skills** installed in OpenClaw, not on this plugin itself.
-
-<details>
-<summary><b>🎙️ Voice Messages (STT)</b> — AI understands voice messages, auto-transcribes speech to text</summary>
-
-With STT configured, the plugin automatically transcribes voice messages to text before passing them to AI. The whole process is transparent to the user — sending voice feels as natural as sending text.
-
-> **You**: *(send a voice message)* "What's the weather like tomorrow in Shenzhen?"
->
-> **QQBot**: Tomorrow (March 7, Saturday) Shenzhen weather forecast 🌤️ ...
-
-<img width="360" src="docs/images/fc7b2236896cfba3a37c94be5d59ce3e_720.jpg" alt="Voice STT Demo" />
-
-</details>
-
-<details>
-<summary><b>📄 File Understanding</b> — Send any file, AI reads and understands it</summary>
-
-Send any file to the bot — novels, reports, spreadsheets — AI automatically recognizes the content and gives an intelligent reply.
-
-> **You**: *(send a TXT file of "War and Peace")*
->
-> **QQBot**: Got it! You uploaded the Chinese version of "War and Peace" by Leo Tolstoy. This appears to be the opening of Chapter 1...
-
-<img width="360" src="docs/images/07bff56ab68e03173d2af586eeb3bcee_720.jpg" alt="File Understanding Demo" />
-
-</details>
-
-<details>
-<summary><b>🖼️ Image Understanding</b> — Vision-capable models can see and describe images</summary>
-
-If your main model supports vision (e.g. Tencent Hunyuan `hunyuan-vision`), AI can understand images too. This is a general multimodal capability, not plugin-specific.
-
-> **You**: *(send an image)*
->
-> **QQBot**: Haha, so cute! Is that a QQ penguin in a lobster costume? 🦞🐧 ...
-
-<img width="360" src="docs/images/59d421891f813b0d3c0cbe12574b6a72_720.jpg" alt="Image Understanding Demo" />
-
-</details>
-
-<details>
-<summary><b>🎨 Image Generation</b> — Ask the bot to draw, it sends the result back</summary>
-
-> **You**: Draw me a cat
->
-> **QQBot**: Here you go! 🐱
-
-AI uses the `<qqimg>` tag to send images. Both local file paths and URLs are supported. Formats: jpg/png/gif/webp/bmp.
-
-```
-<qqimg>~/.openclaw/qqbot/images/cute-cat.png</qqimg>
-```
-
-<img width="360" src="docs/images/4645f2b3a20822b7f8d6664a708529eb_720.jpg" alt="Image Generation Demo" />
-
-</details>
-
-<details>
-<summary><b>🔊 Voice Reply (TTS)</b> — Bot replies with voice messages</summary>
-
-> **You**: Tell me a joke in voice
->
-> **QQBot**: *(sends a voice message)*
-
-AI uses the `<qqvoice>` tag to send voice messages. Formats: mp3/wav/silk/ogg. Works without ffmpeg.
-
-```
-<qqvoice>~/.openclaw/qqbot/tts/joke.silk</qqvoice>
-```
-
-<img width="360" src="docs/images/21dce8bfc553ce23d1bd1b270e9c516c.jpg" alt="TTS Voice Demo" />
-
-</details>
-
-<details>
-<summary><b>📎 File Sending</b> — Generate and send files of any format (up to 20MB)</summary>
-
-> **You**: Extract chapter 1 of War and Peace and send it as a file
->
-> **QQBot**: *(sends a .txt file)*
-
-AI uses the `<qqfile>` tag to send files. PDF, Excel, ZIP, TXT — any format, up to 20MB.
-
-```
-<qqfile>~/.openclaw/qqbot/downloads/war-and-peace-ch1.txt</qqfile>
-```
-
-<img width="360" src="docs/images/17cada70df90185d45a2d6dd36e92f2f_720.jpg" alt="File Sending Demo" />
-
-</details>
-
-<details>
-<summary><b>🎬 Video Sending</b> — Send videos, large files auto-show upload progress</summary>
-
-> **You**: Send me a demo video
->
-> **QQBot**: *(sends a video)*
-
-AI uses the `<qqvideo>` tag to send videos. Both local files and URLs are supported. Large files (>5MB) auto-show "uploading..." status.
-
-```
-<qqvideo>~/.openclaw/qqbot/downloads/demo.mp4</qqvideo>
-```
-
-<img width="360" src="docs/images/85d03b8a216f267ab7b2aee248a18a41_720.jpg" alt="Video Sending Demo" />
-
-</details>
-
-### Rich Media Tag Reference
-
-| Tag | Direction | Usage | Notes |
-|-----|-----------|-------|-------|
-| `<qqimg>path</qqimg>` | Send | Image | Local path or URL, jpg/png/gif/webp/bmp |
-| `<qqvoice>path</qqvoice>` | Send | Voice | mp3/wav/silk/ogg, no ffmpeg required |
-| `<qqfile>path</qqfile>` | Send | File | Any format, up to 20MB |
-| `<qqvideo>path</qqvideo>` | Send | Video | Local path or URL |
-| Voice message | Receive | STT | Auto-transcribe with configured STT model |
-| File attachment | Receive | File | Auto-download and feed content to AI |
-| Image attachment | Receive | Vision | Requires vision-capable model |
-
-### Try It Yourself
-
-| Direction | You say | AI does |
-|-----------|---------|---------|
-| Receive voice | Send a voice message asking about weather | STT auto-transcribes, AI replies with text |
-| Receive file | Send a file to the bot | AI reads file content, gives intelligent reply |
-| Send image | "Draw me a cat" | Calls drawing tool, sends image back |
-| Send voice | "Tell me a joke in voice" | TTS generates voice, sends voice message |
-| Send file | "Generate a file for me" | Creates file, sends via `<qqfile>` |
-| Send video | "Send me a video" | Sends video via `<qqvideo>` |
-
-**Under the hood:** Tag variant auto-correction (30+ variants like `<qq_img>`, `<image>`, `＜qqimg＞` are all recognized), upload caching (dedup within short windows), ordered queue delivery, and multi-layer audio format fallback.
-
----
-
-## ⭐ Star History
-
-<div align="center">
-
-[![Star History Chart](https://api.star-history.com/svg?repos=tencent-connect/openclaw-qqbot&type=date&legend=top-left)](https://www.star-history.com/#tencent-connect/openclaw-qqbot&type=date&legend=top-left)
-
-</div>
-
----
-
 ## 🚀 Getting Started
 
 ### Step 1 — Create a QQ Bot on the QQ Open Platform
@@ -475,10 +327,168 @@ openclaw gateway restart
 
 ---
 
+## 📸 Rich Media — Full Guide
+
+> **Note:** This plugin serves as a **message channel** only — it relays messages between QQ and OpenClaw. Capabilities like image understanding, voice transcription, drawing, etc. depend on the **AI model** you configure and the **skills** installed in OpenClaw, not on this plugin itself.
+
+<details>
+<summary><b>What AI Can Receive</b> — Voice, files, and images can all be understood</summary>
+
+#### Voice Messages (STT)
+
+With STT configured, the plugin automatically transcribes voice messages to text before passing them to AI. The whole process is transparent to the user — sending voice feels as natural as sending text.
+
+STT supports two-level configuration with priority fallback: `channels.qqbot.stt` (plugin-specific) → `tools.media.audio.models[0]` (framework-level fallback). Framework-level example:
+
+```json
+{
+  "tools": {
+    "media": {
+      "audio": {
+        "models": [
+          { "provider": "openai", "model": "FunAudioLLM/SenseVoiceSmall" }
+        ]
+      }
+    }
+  }
+}
+```
+
+`provider` references a key in `models.providers` to inherit `baseUrl` and `apiKey`. Supports any OpenAI-compatible STT API.
+
+> **You**: *(send a voice message)* "What's the weather like tomorrow in Shenzhen?"
+>
+> **QQBot**: Tomorrow (March 7, Saturday) Shenzhen weather forecast 🌤️ ...
+
+<img width="360" src="docs/images/fc7b2236896cfba3a37c94be5d59ce3e_720.jpg" alt="Voice STT Demo" />
+
+#### File Understanding
+
+Send any file to the bot — novels, reports, spreadsheets — AI automatically recognizes the content and gives an intelligent reply.
+
+> **You**: *(send a TXT file of "War and Peace")*
+>
+> **QQBot**: Got it! You uploaded the Chinese version of "War and Peace" by Leo Tolstoy. This appears to be the opening of Chapter 1...
+
+<img width="360" src="docs/images/07bff56ab68e03173d2af586eeb3bcee_720.jpg" alt="File Understanding Demo" />
+
+#### Image Understanding
+
+If your main model supports vision (e.g. Tencent Hunyuan `hunyuan-vision`), AI can understand images too. This is a general multimodal capability, not plugin-specific.
+
+> **You**: *(send an image)*
+>
+> **QQBot**: Haha, so cute! Is that a QQ penguin in a lobster costume? 🦞🐧 ...
+
+<img width="360" src="docs/images/59d421891f813b0d3c0cbe12574b6a72_720.jpg" alt="Image Understanding Demo" />
+
+</details>
+
+<details>
+<summary><b>What AI Can Send</b> — Images, voice, files, and videos can all be sent directly</summary>
+
+#### Image
+
+AI writes a `<qqimg>` tag in the reply and the system automatically uploads and sends it. Both local file paths and URLs are supported. Formats: jpg/png/gif/webp/bmp.
+
+> **You**: Draw me a cat
+>
+> **QQBot**: `<qqimg>~/.openclaw/qqbot/images/cute-cat.png</qqimg>`
+
+<img width="360" src="docs/images/4645f2b3a20822b7f8d6664a708529eb_720.jpg" alt="Image Generation Demo" />
+
+#### Voice (TTS)
+
+With TTS configured, AI can turn text into voice messages.
+
+TTS supports two-level configuration: `channels.qqbot.tts` (plugin-specific) → `messages.tts` (framework-level fallback). Plugin-specific example:
+
+```json
+{
+  "channels": {
+    "qqbot": {
+      "tts": { "provider": "openai", "model": "FunAudioLLM/CosyVoice2-0.5B", "voice": "FunAudioLLM/CosyVoice2-0.5B:claire" }
+    }
+  }
+}
+```
+
+`provider` references a key in `models.providers` to inherit `baseUrl` and `apiKey`. Use `voice` to select a voice variant. For detailed config, see [Voice Configuration](#-voice-configuration-optional).
+
+> **You**: Tell me a joke in voice
+>
+> **QQBot**: `<qqvoice>~/.openclaw/qqbot/tts/joke.silk</qqvoice>`
+
+Supports mp3/wav/silk/ogg. Works without ffmpeg.
+
+<img width="360" src="docs/images/21dce8bfc553ce23d1bd1b270e9c516c.jpg" alt="TTS Voice Demo" />
+
+#### File
+
+> **You**: Extract chapter 1 of War and Peace and send it as a file
+>
+> **QQBot**: `<qqfile>~/.openclaw/qqbot/downloads/war-and-peace-ch1.txt</qqfile>`
+
+PDF, Excel, ZIP, TXT — any format, up to 20MB.
+
+<img width="360" src="docs/images/17cada70df90185d45a2d6dd36e92f2f_720.jpg" alt="File Sending Demo" />
+
+#### Video
+
+> **You**: Send me a demo video
+>
+> **QQBot**: `<qqvideo>~/.openclaw/qqbot/downloads/demo.mp4</qqvideo>`
+
+Both local files and URLs are supported. Large files (>5MB) auto-show "uploading..." status.
+
+<img width="360" src="docs/images/85d03b8a216f267ab7b2aee248a18a41_720.jpg" alt="Video Sending Demo" />
+
+</details>
+
+<details>
+<summary><b>Try It Yourself</b> — Quick demo scenarios</summary>
+
+| Direction | You say | AI does |
+|-----------|---------|---------|
+| Receive voice | Send a voice message asking about weather | STT auto-transcribes, AI replies with text |
+| Receive file | Send a file to the bot | AI reads file content, gives intelligent reply |
+| Send image | "Draw me a cat" | Calls drawing tool, sends image back |
+| Send voice | "Tell me a joke in voice" | TTS generates voice, sends voice message |
+| Send file | "Generate a file for me" | Creates file, sends via `<qqfile>` |
+| Send video | "Send me a video" | Sends video via `<qqvideo>` |
+
+</details>
+
+<details>
+<summary><b>Under the Hood</b> — Why does it feel so smooth?</summary>
+
+- **Tag auto-correction**: 30+ variants like `<qq_img>`, `<image>`, even full-width `＜qqimg＞` are all auto-corrected to the standard tag
+- **Upload caching**: Same file sent to the same target within a short window automatically reuses the last upload result
+- **Ordered delivery**: Mixed messages (text + images + voice) are split into a queue and delivered in order; one failure doesn't block the rest
+- **Multi-layer fallback**: Audio format conversion tries multiple methods automatically to ensure voice delivery
+
+</details>
+
+**Quick Reference:**
+
+```
+Receive  Voice → STT auto-transcribes    File → Auto-download    Image → Vision model
+Send     Image → <qqimg>    Voice → <qqvoice>    File → <qqfile>    Video → <qqvideo>
+```
+
+---
+
 ## 📚 Documentation
 
-- [Rich Media Guide](docs/qqbot-media-guide.md) — detailed STT/TTS config examples and tag usage
 - [Command Reference](docs/commands.md) — OpenClaw CLI commands
-- [Changelog](docs/changelog/) — release notes ([latest: 1.5.4](docs/changelog/1.5.4.md))
+- [Changelog](CHANGELOG.md) — release notes
 
+---
 
+## ⭐ Star History
+
+<div align="center">
+
+[![Star History Chart](https://api.star-history.com/svg?repos=tencent-connect/openclaw-qqbot&type=date&legend=top-left)](https://www.star-history.com/#tencent-connect/openclaw-qqbot&type=date&legend=top-left)
+
+</div>

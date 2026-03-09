@@ -40,154 +40,6 @@
 
 ---
 
-## 📸 功能展示
-
-> **说明：** 本插件仅作为**消息通道**，负责在 QQ 和 OpenClaw 之间传递消息。图片理解、语音转录、AI 画图等能力取决于你配置的 **AI 模型**以及在 OpenClaw 中安装的 **skill**，而非插件本身提供。
-
-<details>
-<summary><b>🎙️ 语音消息（STT）</b> — 配置 STT 后，自动将语音转录为文字理解</summary>
-
-配置 STT 后，插件会自动将语音转录为文字再交给 AI 处理。整个过程对用户完全透明——发语音就像发文字一样自然，AI 听得懂你在说什么。
-
-> **你**：*（发送一段语音）*"明天深圳天气怎么样"
->
-> **QQBot**：明天（3月7日 周六）深圳的天气预报 🌤️ ...
-
-<img width="360" src="docs/images/fc7b2236896cfba3a37c94be5d59ce3e_720.jpg" alt="听语音演示" />
-
-</details>
-
-<details>
-<summary><b>📄 文件理解</b> — 发文件给 AI，自动识别内容并智能回复</summary>
-
-用户发文件给 AI，AI 同样能接住。不管是一本小说还是一份报告，AI 会自动识别文件内容并给出智能回复。
-
-> **你**：*（发送《战争与和平》TXT 文件）*
->
-> **QQBot**：收到！你上传了列夫·托尔斯泰的《战争与和平》中文版文本。从内容来看，这是第一章的开头……你想让我做什么？
-
-<img width="360" src="docs/images/07bff56ab68e03173d2af586eeb3bcee_720.jpg" alt="AI理解用户发送的文件" />
-
-</details>
-
-<details>
-<summary><b>🖼️ 图片理解</b> — 主模型支持视觉能力时，发图片 AI 也能看懂</summary>
-
-如果主模型支持视觉（如腾讯混元 `hunyuan-vision`），用户发图片 AI 也能看懂。这是多模态模型的通用能力，非插件专属功能。
-
-> **你**：*（发送一张图片）*
->
-> **QQBot**：哈哈，好可爱！这是QQ企鹅穿上小龙虾套装吗？🦞🐧 ...
-
-<img width="360" src="docs/images/59d421891f813b0d3c0cbe12574b6a72_720.jpg" alt="图片理解演示" />
-
-</details>
-
-<details>
-<summary><b>🎨 AI 画图</b> — 调用绘图工具生成图片，直接发到对话里</summary>
-
-> **你**：画一只猫咪
->
-> **QQBot**：给你画好了！🐱
-
-AI 通过 `<qqimg>` 标签发送图片，支持本地文件路径和网络 URL。格式：jpg/png/gif/webp/bmp。
-
-```
-<qqimg>~/.openclaw/qqbot/images/cute-cat.png</qqimg>
-```
-
-<img width="360" src="docs/images/4645f2b3a20822b7f8d6664a708529eb_720.jpg" alt="发图片演示" />
-
-</details>
-
-<details>
-<summary><b>🔊 语音回复（TTS）</b> — AI 把文字变成语音消息发出来</summary>
-
-> **你**：用语音讲个笑话
->
-> **QQBot**：*（发送一条语音消息）*
-
-AI 通过 `<qqvoice>` 标签发送语音消息。格式：mp3/wav/silk/ogg，无需安装 ffmpeg。
-
-```
-<qqvoice>~/.openclaw/qqbot/tts/joke.silk</qqvoice>
-```
-
-<img width="360" src="docs/images/21dce8bfc553ce23d1bd1b270e9c516c.jpg" alt="发语音演示" />
-
-</details>
-
-<details>
-<summary><b>📎 文件发送</b> — 生成并发送任意格式文件，最大 20MB</summary>
-
-> **你**：战争与和平的第一章截取一下发文件给我
->
-> **QQBot**：*（发送 .txt 文件）*
-
-AI 通过 `<qqfile>` 标签发送文件。PDF、Excel、ZIP、TXT，什么格式都能发，最大 20MB。
-
-```
-<qqfile>~/.openclaw/qqbot/downloads/战争与和平_第一章.txt</qqfile>
-```
-
-<img width="360" src="docs/images/17cada70df90185d45a2d6dd36e92f2f_720.jpg" alt="发文件演示" />
-
-</details>
-
-<details>
-<summary><b>🎬 视频发送</b> — 支持本地文件和公网 URL，大文件自动显示上传进度</summary>
-
-> **你**：发一个演示视频给我
->
-> **QQBot**：*（发送视频）*
-
-AI 通过 `<qqvideo>` 标签发送视频，支持本地文件和公网 URL。大文件（>5MB）自动提示"正在上传..."。
-
-```
-<qqvideo>~/.openclaw/qqbot/downloads/demo.mp4</qqvideo>
-```
-
-<img width="360" src="docs/images/85d03b8a216f267ab7b2aee248a18a41_720.jpg" alt="发视频演示" />
-
-</details>
-
-### 富媒体标签参考
-
-| 标签 | 方向 | 用途 | 说明 |
-|------|------|------|------|
-| `<qqimg>路径</qqimg>` | 发送 | 图片 | 本地路径或 URL，jpg/png/gif/webp/bmp |
-| `<qqvoice>路径</qqvoice>` | 发送 | 语音 | mp3/wav/silk/ogg，无需 ffmpeg |
-| `<qqfile>路径</qqfile>` | 发送 | 文件 | 任意格式，最大 20MB |
-| `<qqvideo>路径</qqvideo>` | 发送 | 视频 | 本地路径或 URL |
-| 语音消息 | 接收 | STT | 自动转录，需配置 STT 模型 |
-| 文件附件 | 接收 | 文件 | 自动下载并将内容交给 AI |
-| 图片附件 | 接收 | 视觉 | 需主模型支持视觉能力 |
-
-### 体验演示场景
-
-| 方向 | 你说 | AI 做 |
-|------|------|-------|
-| 接收语音 | 发送一段语音提问天气 | STT 自动转录，AI 理解后文字回复 |
-| 接收文件 | 发送一个文件给机器人 | AI 识别文件内容，智能分析回复 |
-| 发送图片 | "帮我画一只猫咪" | 调用绘图工具，生成图片发回 |
-| 发送语音 | "用语音讲个笑话" | TTS 生成语音，直接发送语音消息 |
-| 发送文件 | "帮我生成一个文件" | 生成文件并通过 `<qqfile>` 发送 |
-| 发送视频 | "发个视频给我" | 通过 `<qqvideo>` 直接发送视频 |
-
-**底层细节：** 标签容错（自动纠正 `<qq_img>`、`<image>`、`＜qqimg＞` 等 30 多种变体写法）、上传缓存（短时间内相同文件自动复用）、有序队列发送（混合消息按顺序投递，单项失败不影响其他）、音频格式多层降级。
-
----
-
-## ⭐ Star History
-
-<div align="center">
-
-[![Star History Chart](https://api.star-history.com/svg?repos=tencent-connect/openclaw-qqbot&type=date&legend=top-left)](https://www.star-history.com/#tencent-connect/openclaw-qqbot&type=date&legend=top-left)
-
-</div>
-
----
-
 ## 🚀 快速开始
 
 ### 第一步 — 在 QQ 开放平台创建机器人
@@ -471,10 +323,168 @@ openclaw gateway restart
 
 ---
 
+## 📸 富媒体能力全解
+
+> **说明：** 本插件仅作为**消息通道**，负责在 QQ 和 OpenClaw 之间传递消息。图片理解、语音转录、AI 画图等能力取决于你配置的 **AI 模型**以及在 OpenClaw 中安装的 **skill**，而非插件本身提供。
+
+<details>
+<summary><b>AI 能接收什么</b> — 语音、文件、图片都能被理解</summary>
+
+#### 语音消息（STT）
+
+配置 STT 后，插件会自动将语音转录为文字再交给 AI 处理。整个过程对用户完全透明——发语音就像发文字一样自然。
+
+STT 支持两级配置，按优先级查找：`channels.qqbot.stt`（插件专属） → `tools.media.audio.models[0]`（框架级回退）。以框架级配置为例：
+
+```json
+{
+  "tools": {
+    "media": {
+      "audio": {
+        "models": [
+          { "provider": "openai", "model": "FunAudioLLM/SenseVoiceSmall" }
+        ]
+      }
+    }
+  }
+}
+```
+
+`provider` 引用 `models.providers` 中的 key，自动继承 `baseUrl` 和 `apiKey`，支持任何 OpenAI 兼容的 STT 接口。
+
+> **你**：（发送一段语音）"明天深圳天气怎么样"
+>
+> **QQBot**：明天（3月7日 周六）深圳的天气预报 🌤️ ...
+
+<img width="360" src="docs/images/fc7b2236896cfba3a37c94be5d59ce3e_720.jpg" alt="听语音演示" />
+
+#### 文件
+
+用户发文件给 AI，AI 同样能接住。不管是一本小说还是一份报告，AI 会自动识别文件内容并给出智能回复：
+
+> **你**：（发送《战争与和平》TXT 文件）
+>
+> **QQBot**：收到！你上传了列夫·托尔斯泰的《战争与和平》中文版文本。从内容来看，这是第一章的开头……你想让我做什么？
+
+<img width="360" src="docs/images/07bff56ab68e03173d2af586eeb3bcee_720.jpg" alt="AI理解用户发送的文件" />
+
+#### 图片
+
+如果主模型支持视觉（如腾讯混元 `hunyuan-vision`），用户发图片 AI 也能看懂。这是多模态模型的通用能力，非插件专属功能。
+
+> **你**：（发送一张图片）
+>
+> **QQBot**：哈哈，好可爱！这是QQ企鹅穿上小龙虾套装吗？🦞🐧 ...
+
+<img width="360" src="docs/images/59d421891f813b0d3c0cbe12574b6a72_720.jpg" alt="图片理解演示" />
+
+</details>
+
+<details>
+<summary><b>AI 能发送什么</b> — 图片、语音、文件、视频都能直接发出来</summary>
+
+#### 图片
+
+AI 在回复中写 `<qqimg>` 标签，系统自动上传发送。本地文件路径和网络 URL 都行，支持 jpg/png/gif/webp/bmp。
+
+> **你**：画一只猫咪
+>
+> **QQBot**：`<qqimg>~/.openclaw/qqbot/images/cute-cat.png</qqimg>`
+
+<img width="360" src="docs/images/4645f2b3a20822b7f8d6664a708529eb_720.jpg" alt="发图片演示" />
+
+#### 语音（TTS）
+
+配置 TTS 后，AI 可以把文字变成语音消息发出来。
+
+TTS 同样支持两级配置：`channels.qqbot.tts`（插件专属） → `messages.tts`（框架级回退）。以插件专属配置为例：
+
+```json
+{
+  "channels": {
+    "qqbot": {
+      "tts": { "provider": "openai", "model": "FunAudioLLM/CosyVoice2-0.5B", "voice": "FunAudioLLM/CosyVoice2-0.5B:claire" }
+    }
+  }
+}
+```
+
+`provider` 引用 `models.providers` 中的 key，自动继承 `baseUrl` 和 `apiKey`。可通过 `voice` 选择音色。详细的多级配置说明见[语音能力配置](#-语音能力配置可选)。
+
+> **你**：用语音讲个笑话
+>
+> **QQBot**：`<qqvoice>~/.openclaw/qqbot/tts/joke.silk</qqvoice>`
+
+支持 mp3/wav/silk/ogg 等常见音频格式，未安装 ffmpeg 也可正常使用。
+
+<img width="360" src="docs/images/21dce8bfc553ce23d1bd1b270e9c516c.jpg" alt="发语音演示" />
+
+#### 文件
+
+> **你**：战争与和平的第一章截取一下发文件给我
+>
+> **QQBot**：`<qqfile>~/.openclaw/qqbot/downloads/战争与和平_第一章.txt</qqfile>`
+
+PDF、Excel、ZIP、TXT，什么格式都能发，最大 20MB。
+
+<img width="360" src="docs/images/17cada70df90185d45a2d6dd36e92f2f_720.jpg" alt="发文件演示" />
+
+#### 视频
+
+> **你**：发一个演示视频给我
+>
+> **QQBot**：`<qqvideo>~/.openclaw/qqbot/downloads/demo.mp4</qqvideo>`
+
+支持本地文件路径和公网 URL，大文件（>5MB）会自动提示"正在上传..."。
+
+<img width="360" src="docs/images/85d03b8a216f267ab7b2aee248a18a41_720.jpg" alt="发视频演示" />
+
+</details>
+
+<details>
+<summary><b>体验演示场景</b> — 可以直接复现的玩法</summary>
+
+| 方向 | 你说 | AI 做 |
+|------|------|-------|
+| 接收语音 | 发送一段语音提问天气 | STT 自动转录，AI 理解后文字回复 |
+| 接收文件 | 发送一个文件给机器人 | AI 识别文件内容，智能分析回复 |
+| 发送图片 | "帮我画一只猫咪" | 调用绘图工具，生成图片发回 |
+| 发送语音 | "用语音讲个笑话" | TTS 生成语音，直接发送语音消息 |
+| 发送文件 | "帮我生成一个文件" | 生成文件并通过 `<qqfile>` 发送 |
+| 发送视频 | "发个视频给我" | 通过 `<qqvideo>` 直接发送视频 |
+
+</details>
+
+<details>
+<summary><b>底层细节</b> — 为什么体验这么丝滑？</summary>
+
+- **标签容错**：`<qq_img>`、`<image>`、甚至中文尖括号 `＜qqimg＞` 等 30 多种变体写法均可自动纠正为标准标签
+- **上传缓存**：相同文件短时间内发给同一目标，自动复用上次的上传结果，避免重复传输
+- **有序发送**：一条消息里混着文字、图片、语音，系统自动拆解成队列按顺序发，某一项失败不影响其他
+- **分层降级**：音频格式转换会自动尝试多种方式，确保语音正常送达
+
+</details>
+
+**速查：**
+
+```
+接收  语音 → STT 自动转录    文件 → 自动下载识别    图片 → 需视觉模型
+发送  图片 → <qqimg>    语音 → <qqvoice>    文件 → <qqfile>    视频 → <qqvideo>
+```
+
+---
+
 ## 📚 文档
 
-- [富媒体指南](docs/qqbot-media-guide.md) — 详细的 STT/TTS 配置示例和标签用法
 - [命令参考](docs/commands.md) — OpenClaw CLI 常用命令
-- [更新日志](docs/changelog/) — 各版本变更记录（[最新: 1.5.4](docs/changelog/1.5.4.md)）
+- [更新日志](CHANGELOG.md) — 各版本变更记录
 
+---
 
+## ⭐ Star History
+
+<div align="center">
+
+[![Star History Chart](https://api.star-history.com/svg?repos=tencent-connect/openclaw-qqbot&type=date&legend=top-left)](https://www.star-history.com/#tencent-connect/openclaw-qqbot&type=date&legend=top-left)
+
+</div>
