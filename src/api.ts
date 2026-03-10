@@ -42,7 +42,8 @@ const tokenFetchPromises = new Map<string, Promise<string>>();
  * 按 appId 隔离，支持多机器人并发请求。
  */
 export async function getAccessToken(appId: string, clientSecret: string): Promise<string> {
-  const cachedToken = tokenCacheMap.get(appId);
+  const normalizedAppId = String(appId).trim();
+  const cachedToken = tokenCacheMap.get(normalizedAppId);
 
   // 检查缓存：未过期 且 appId 未变化 时复用
   if (cachedToken && Date.now() < cachedToken.expiresAt - 5 * 60 * 1000) {
@@ -50,23 +51,23 @@ export async function getAccessToken(appId: string, clientSecret: string): Promi
   }
 
   // Singleflight: 如果当前 appId 已有进行中的 Token 获取请求，复用它
-  let fetchPromise = tokenFetchPromises.get(appId);
+  let fetchPromise = tokenFetchPromises.get(normalizedAppId);
   if (fetchPromise) {
-    console.log(`[qqbot-api:${appId}] Token fetch in progress, waiting for existing request...`);
+    console.log(`[qqbot-api:${normalizedAppId}] Token fetch in progress, waiting for existing request...`);
     return fetchPromise;
   }
 
   // 创建新的 Token 获取 Promise（singleflight 入口）
   fetchPromise = (async () => {
     try {
-      return await doFetchToken(appId, clientSecret);
+      return await doFetchToken(normalizedAppId, clientSecret);
     } finally {
       // 无论成功失败，都清除 Promise 缓存
-      tokenFetchPromises.delete(appId);
+      tokenFetchPromises.delete(normalizedAppId);
     }
   })();
 
-  tokenFetchPromises.set(appId, fetchPromise);
+  tokenFetchPromises.set(normalizedAppId, fetchPromise);
   return fetchPromise;
 }
 
@@ -134,8 +135,9 @@ async function doFetchToken(appId: string, clientSecret: string): Promise<string
  */
 export function clearTokenCache(appId?: string): void {
   if (appId) {
-    tokenCacheMap.delete(appId);
-    console.log(`[qqbot-api:${appId}] Token cache cleared manually.`);
+    const normalizedAppId = String(appId).trim();
+    tokenCacheMap.delete(normalizedAppId);
+    console.log(`[qqbot-api:${normalizedAppId}] Token cache cleared manually.`);
   } else {
     tokenCacheMap.clear();
     console.log(`[qqbot-api] All token caches cleared.`);

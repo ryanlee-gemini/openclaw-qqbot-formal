@@ -141,13 +141,15 @@ AI 通过 `<qqvideo>路径</qqvideo>` 发送视频，支持本地文件和公网
 
 <img width="720" alt="创建机器人" src="docs/images/create_robot.png" />
 
+> ⚠️ 机器人创建后会自动出现在你的 QQ 消息列表中，并发送第一条消息。但在完成下面的配置之前，发消息会提示"该机器人去火星了"，属于正常现象。
+
+<img width="400" alt="机器人打招呼" src="docs/images/bot_say_hello.jpg" />
+
 4. 在机器人页面中找到 **AppID** 和 **AppSecret**，分别点击右侧**复制**按钮，保存到记事本或备忘录中。**AppSecret 不支持明文保存，离开页面后再查看会强制重置，请务必妥善保存。**
 
-<img width="1670" height="1036" alt="Clipboard_Screenshot_1772980413" src="https://github.com/user-attachments/assets/b898d171-5711-4d42-bc07-2de967b119ec" />
+<img width="720" alt="找到 AppID 和 AppSecret" src="docs/images/find_appid_secret.png" />
 
 > 详细图文教程请参阅 [官方指南](https://cloud.tencent.com/developer/article/2626045)。
-
-> ⚠️ 机器人创建后会自动出现在你的 QQ 消息列表中，并发送第一条消息。但在完成下面的配置之前，发消息会提示"该机器人去火星了"，属于正常现象。
 
 ### 第二步 — 安装插件
 

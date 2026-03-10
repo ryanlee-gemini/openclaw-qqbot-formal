@@ -301,7 +301,7 @@ interface QueuedMessage {
   channelId?: string;
   guildId?: string;
   groupOpenid?: string;
-  attachments?: Array<{ content_type: string; url: string; filename?: string; voice_wav_url?: string }>;
+  attachments?: Array<{ content_type: string; url: string; filename?: string; voice_wav_url?: string; asr_refer_text?: string }>;
 }
 
 /**
@@ -585,7 +585,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         channelId?: string;
         guildId?: string;
         groupOpenid?: string;
-        attachments?: Array<{ content_type: string; url: string; filename?: string; voice_wav_url?: string }>;
+        attachments?: Array<{ content_type: string; url: string; filename?: string; voice_wav_url?: string; asr_refer_text?: string }>;
       }) => {
 
         log?.debug?.(`[qqbot:${account.accountId}] Received message: ${JSON.stringify(event)}`);
@@ -657,7 +657,11 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         let attachmentInfo = "";
         const imageUrls: string[] = [];
         const imageMediaTypes: string[] = [];
+        const voiceAttachmentPaths: string[] = [];
+        const voiceAttachmentUrls: string[] = [];
+        const voiceAsrReferTexts: string[] = [];
         const voiceTranscripts: string[] = [];
+        const voiceTranscriptSources: Array<"stt" | "asr" | "fallback"> = [];
         // 存到 .openclaw/qqbot 目录下的 downloads 文件夹
         const downloadDir = getQQBotDataDir("downloads");
         
@@ -670,11 +674,19 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
             // 语音附件：优先下载 WAV（voice_wav_url），减少 SILK→WAV 转换
             const isVoice = isVoiceAttachment(att);
+            const asrReferText = typeof att.asr_refer_text === "string" ? att.asr_refer_text.trim() : "";
+            const wavUrl = isVoice && att.voice_wav_url
+              ? (att.voice_wav_url.startsWith("//") ? `https:${att.voice_wav_url}` : att.voice_wav_url)
+              : "";
+            const voiceSourceUrl = wavUrl || attUrl;
+            if (isVoice) {
+              if (voiceSourceUrl) voiceAttachmentUrls.push(voiceSourceUrl);
+              if (asrReferText) voiceAsrReferTexts.push(asrReferText);
+            }
             let localPath: string | null = null;
             let audioPath: string | null = null; // 用于 STT 的音频路径
 
-            if (isVoice && att.voice_wav_url) {
-              const wavUrl = att.voice_wav_url.startsWith("//") ? `https:${att.voice_wav_url}` : att.voice_wav_url;
+            if (isVoice && wavUrl) {
               const wavLocalPath = await downloadFile(wavUrl, downloadDir);
               if (wavLocalPath) {
                 localPath = wavLocalPath;
@@ -695,11 +707,19 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                 imageUrls.push(localPath);
                 imageMediaTypes.push(att.content_type);
               } else if (isVoice) {
+                voiceAttachmentPaths.push(localPath);
                 // 语音消息处理：先检查 STT 是否可用，避免无意义的转换开销
                 const sttCfg = resolveSTTConfig(cfg as Record<string, unknown>);
                 if (!sttCfg) {
-                  log?.info(`[qqbot:${account.accountId}] Voice attachment: ${att.filename} (STT not configured, skipping transcription)`);
-                  voiceTranscripts.push("[语音消息 - 语音识别未配置，无法转录]");
+                  if (asrReferText) {
+                    log?.info(`[qqbot:${account.accountId}] Voice attachment: ${att.filename} (STT not configured, using asr_refer_text fallback)`);
+                    voiceTranscripts.push(asrReferText);
+                    voiceTranscriptSources.push("asr");
+                  } else {
+                    log?.info(`[qqbot:${account.accountId}] Voice attachment: ${att.filename} (STT not configured, skipping transcription)`);
+                    voiceTranscripts.push("[语音消息 - 语音识别未配置，无法转录]");
+                    voiceTranscriptSources.push("fallback");
+                  }
                 } else {
                   // 如果还没有 WAV 路径（voice_wav_url 不可用），需要 SILK→WAV 转换
                   if (!audioPath) {
@@ -715,7 +735,14 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                       }
                     } catch (convertErr) {
                       log?.error(`[qqbot:${account.accountId}] Voice conversion failed: ${convertErr}`);
-                      voiceTranscripts.push("[语音消息 - 格式转换失败]");
+                      if (asrReferText) {
+                        log?.info(`[qqbot:${account.accountId}] Voice attachment: ${att.filename} (using asr_refer_text fallback after convert failure)`);
+                        voiceTranscripts.push(asrReferText);
+                        voiceTranscriptSources.push("asr");
+                      } else {
+                        voiceTranscripts.push("[语音消息 - 格式转换失败]");
+                        voiceTranscriptSources.push("fallback");
+                      }
                       continue;
                     }
                   }
@@ -726,13 +753,26 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                     if (transcript) {
                       log?.info(`[qqbot:${account.accountId}] STT transcript: ${transcript.slice(0, 100)}...`);
                       voiceTranscripts.push(transcript);
+                      voiceTranscriptSources.push("stt");
+                    } else if (asrReferText) {
+                      log?.info(`[qqbot:${account.accountId}] STT returned empty result, using asr_refer_text fallback`);
+                      voiceTranscripts.push(asrReferText);
+                      voiceTranscriptSources.push("asr");
                     } else {
                       log?.info(`[qqbot:${account.accountId}] STT returned empty result`);
                       voiceTranscripts.push("[语音消息 - 转录结果为空]");
+                      voiceTranscriptSources.push("fallback");
                     }
                   } catch (sttErr) {
                     log?.error(`[qqbot:${account.accountId}] STT failed: ${sttErr}`);
-                    voiceTranscripts.push("[语音消息 - 转录失败]");
+                    if (asrReferText) {
+                      log?.info(`[qqbot:${account.accountId}] Voice attachment: ${att.filename} (using asr_refer_text fallback after STT failure)`);
+                      voiceTranscripts.push(asrReferText);
+                      voiceTranscriptSources.push("asr");
+                    } else {
+                      voiceTranscripts.push("[语音消息 - 转录失败]");
+                      voiceTranscriptSources.push("fallback");
+                    }
                   }
                 }
               } else {
@@ -745,6 +785,10 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               if (att.content_type?.startsWith("image/")) {
                 imageUrls.push(attUrl);
                 imageMediaTypes.push(att.content_type);
+              } else if (isVoice && asrReferText) {
+                log?.info(`[qqbot:${account.accountId}] Voice attachment download failed, using asr_refer_text fallback`);
+                voiceTranscripts.push(asrReferText);
+                voiceTranscriptSources.push("asr");
               } else {
                 otherAttachments.push(`[附件: ${att.filename ?? att.content_type}] (下载失败)`);
               }
@@ -758,10 +802,16 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         
         // 语音转录文本注入到用户消息中
         let voiceText = "";
+        const hasAsrReferFallback = voiceTranscriptSources.includes("asr");
         if (voiceTranscripts.length > 0) {
           voiceText = voiceTranscripts.length === 1
-            ? `[语音消息] ${voiceTranscripts[0]}`
-            : voiceTranscripts.map((t, i) => `[语音${i + 1}] ${t}`).join("\n");
+            ? `${voiceTranscriptSources[0] === "asr" ? "[语音消息(ASR兜底，可能不准确)]" : "[语音消息]"} ${voiceTranscripts[0]}`
+            : voiceTranscripts.map((t, i) => {
+                const prefix = voiceTranscriptSources[i] === "asr"
+                  ? `[语音${i + 1}(ASR兜底，可能不准确)]`
+                  : `[语音${i + 1}]`;
+                return `${prefix} ${t}`;
+              }).join("\n");
         }
 
         // 解析 QQ 表情标签，将 <faceType=...,ext="base64"> 替换为 【表情: 中文名】
@@ -789,10 +839,24 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         const nowMs = Date.now();
 
         // 构建媒体附件纯数据描述（图片 + 语音统一列出）
+        const uniqueVoicePaths = [...new Set(voiceAttachmentPaths)];
+        const uniqueVoiceUrls = [...new Set(voiceAttachmentUrls)];
+        const uniqueVoiceAsrReferTexts = [...new Set(voiceAsrReferTexts)].filter(Boolean);
         let receivedMediaSection = "";
-        if (imageUrls.length > 0) {
-          const entries = imageUrls.map((p, i) => `  - ${p} (${imageMediaTypes[i] || "unknown"})`);
-          receivedMediaSection = `\n- 附件:\n${entries.join("\n")}`;
+        if (imageUrls.length > 0 || uniqueVoicePaths.length > 0 || uniqueVoiceUrls.length > 0) {
+          const mediaSections: string[] = [];
+          if (imageUrls.length > 0) {
+            const imageEntries = imageUrls.map((p, i) => `  - ${p} (${imageMediaTypes[i] || "unknown"})`);
+            mediaSections.push(`- 图片附件:\n${imageEntries.join("\n")}`);
+          }
+          if (uniqueVoicePaths.length > 0 || uniqueVoiceUrls.length > 0) {
+            const voiceEntries = [
+              ...uniqueVoicePaths.map((p) => `  - ${p} (local audio)`),
+              ...uniqueVoiceUrls.map((u) => `  - ${u} (remote audio)`),
+            ];
+            mediaSections.push(`- 语音附件:\n${voiceEntries.join("\n")}`);
+          }
+          receivedMediaSection = `\n${mediaSections.join("\n")}`;
         }
 
         // AI 看到的投递地址必须带完整前缀（qqbot:c2c: / qqbot:group:）
@@ -809,8 +873,14 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           ? `6. 🎤 插件 TTS 已启用: 如果你有 TTS 工具（如 audio_speech），可用它生成音频文件后用 <qqvoice> 发送`
           : `6. ⚠️ 插件 TTS 未配置: 如果你有 TTS 工具（如 audio_speech），仍可用它生成音频文件后用 <qqvoice> 发送；若无 TTS 工具，则无法主动生成语音`;
         const sttHint = hasSTT
-          ? `\n7. 用户发送的语音消息会自动转录为文字`
-          : `\n7. 语音识别未配置（STT），无法自动转录用户的语音消息`;
+          ? `\n7. 插件侧 STT 已配置，用户发送的语音消息会尽量自动转录`
+          : `\n7. 插件侧 STT 未配置，插件不会自动转录语音消息`;
+        const asrFallbackHint = hasAsrReferFallback
+          ? `\n8. 本条消息包含平台返回的 asr_refer_text 兜底文本（低置信度）。理解用户意图时可参考，但如关键信息不明确应先追问确认。`
+          : "";
+        const voiceForwardHint = uniqueVoicePaths.length > 0 || uniqueVoiceUrls.length > 0
+          ? `\n9. 本条消息已附带语音文件路径/URL。若你具备 STT 能力（框架能力或 STT skill），优先直接转写音频；若无 STT 能力或转写失败，再使用 asr_refer_text（若存在）作为兜底。`
+          : "";
         const voiceSection = `
 
 【发送语音 - 必须遵守】
@@ -819,7 +889,11 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 3. 支持格式: .silk, .slk, .slac, .amr, .wav, .mp3, .ogg, .pcm
 4. ⚠️ <qqvoice> 只用于语音文件，图片请用 <qqimg>；两者不要混用
 5. 发送语音时，不要重复输出语音中已朗读的文字内容；语音前后的文字应是补充信息而非语音的文字版重复
-${ttsHint}${sttHint}`;
+${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
+
+        const voiceAsrSection = uniqueVoiceAsrReferTexts.length > 0
+          ? `\n- 语音ASR兜底文本:\n${uniqueVoiceAsrReferTexts.map((t, i) => `  ${i + 1}. ${t}`).join("\n")}`
+          : "";
 
         const contextInfo = `你正在通过 QQ 与用户对话。
 
@@ -827,7 +901,7 @@ ${ttsHint}${sttHint}`;
 - 用户: ${event.senderName || "未知"} (${event.senderId})
 - 场景: ${isGroupChat ? "群聊" : "私聊"}${isGroupChat ? ` (群组: ${event.groupOpenid})` : ""}
 - 消息ID: ${event.messageId}
-- 投递目标: ${qualifiedTarget}${receivedMediaSection}
+- 投递目标: ${qualifiedTarget}${receivedMediaSection}${voiceAsrSection}
 - 当前时间戳(ms): ${nowMs}
 - 定时提醒投递地址: channel=qqbot, to=${qualifiedTarget}
 
@@ -915,6 +989,12 @@ ${ttsHint}${sttHint}`;
           QQChannelId: event.channelId,
           QQGuildId: event.guildId,
           QQGroupOpenid: event.groupOpenid,
+          QQVoiceAsrReferAvailable: hasAsrReferFallback,
+          QQVoiceTranscriptSources: voiceTranscriptSources,
+          QQVoiceAttachmentPaths: uniqueVoicePaths,
+          QQVoiceAttachmentUrls: uniqueVoiceUrls,
+          QQVoiceAsrReferTexts: uniqueVoiceAsrReferTexts,
+          QQVoiceInputStrategy: "prefer_audio_stt_then_asr_fallback",
           CommandAuthorized: commandAuthorized,
           // 传递媒体路径和 URL，使 openclaw 原生媒体处理（视觉等）能正常工作
           ...(localMediaPaths.length > 0 ? {

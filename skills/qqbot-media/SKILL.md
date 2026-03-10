@@ -66,6 +66,21 @@ metadata: {"openclaw":{"emoji":"📸","requires":{"config":["channels.qqbot"]}}}
 用户发来的图片**自动下载到本地**，路径在上下文【会话上下文 → 附件】中。
 可直接用 `<qqimg>路径</qqimg>` 回发。历史图片在 `~/.openclaw/qqbot/downloads/` 下。
 
+## 接收语音
+
+机器人消息事件里，`d.attachments` 的附件对象可能包含 `asr_refer_text` 字段，表示平台侧 ASR 结果（低置信度）。
+
+当上下文中出现以下字段时，表示插件已把语音信息透传给 OpenClaw：
+- `QQVoiceAttachmentPaths`: 本地语音文件路径列表
+- `QQVoiceAttachmentUrls`: 远程语音 URL 列表
+- `QQVoiceAsrReferTexts`: 平台 ASR 兜底文本列表
+- `QQVoiceInputStrategy`: 固定为 `prefer_audio_stt_then_asr_fallback`
+
+处理策略（必须遵守）：
+1. 若你具备 STT 能力（框架音频能力或 STT skill），优先对语音文件做转写。
+2. 若没有 STT 能力，或转写失败/结果为空，再使用 `asr_refer_text` 作为兜底参考。
+3. `asr_refer_text` 可能不准确；涉及关键参数、时间、金额、身份等信息时，应先向用户追问确认。
+
 ## 发送语音
 
 使用 `<qqvoice>` 标签包裹**已有的本地音频文件路径**即可发送语音：
@@ -74,7 +89,7 @@ metadata: {"openclaw":{"emoji":"📸","requires":{"config":["channels.qqbot"]}}}
 <qqvoice>/tmp/tts/voice.mp3</qqvoice>
 ```
 
-注意：语音发送需要有可用的音频文件（通常由 TTS 工具生成）。`<qqvoice>` 标签本身只负责发送已有音频文件，不依赖插件 TTS 配置；**但如果没有任何 TTS 工具可用来生成音频，则无法主动发送语音。** 发送语音时，不要同时输出语音内容的文字版重复。
+注意：语音发送需要有可用的音频文件（通常由 TTS 工具生成）。`<qqvoice>` 标签本身只负责发送已有音频文件，不依赖插件 TTS 配置；**但如果没有任何 TTS 工具可用来生成音频，则无法主动发送语音。** 
 
 ## 发送视频
 
