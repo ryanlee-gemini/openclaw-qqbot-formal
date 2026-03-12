@@ -228,6 +228,26 @@ Open QQ, find your bot, and send a message!
 
 ---
 
+## 🛠️ Built-in Commands
+
+### `/echo` — Connectivity Test
+
+Use the `/echo` command to quickly verify whether the bot is online and the message pipeline is working properly.
+
+Send `/echo hello` to the bot — it will reply with the same message immediately (without going through AI). This is the simplest way to confirm end-to-end connectivity.
+
+<!-- TODO: screenshot -->
+
+### `/debug` — Latency Diagnostics
+
+Use the `/debug` command to toggle debug mode for the current conversation. Once enabled, every reply will include a latency breakdown showing timing across each stage of the message pipeline.
+
+Send `/debug` to enable; send `/debug` again to disable.
+
+<!-- TODO: screenshot -->
+
+---
+
 ## ⚙️ Advanced Configuration
 
 ### Multi-Account Setup (Multi-Bot)

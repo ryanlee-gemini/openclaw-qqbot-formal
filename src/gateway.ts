@@ -13,6 +13,7 @@ import { convertSilkToWav, isVoiceAttachment, formatDuration, resolveTTSConfig, 
 import { normalizeMediaTags } from "./utils/media-tags.js";
 import { checkFileSize, readFileAsync, fileExistsAsync, isLargeFile, formatFileSize } from "./utils/file-utils.js";
 import { getQQBotDataDir, isLocalPath as isLocalFilePath, looksLikeLocalPath, normalizePath, sanitizeFileName, runDiagnostics } from "./utils/platform.js";
+import { handleSlashCommand, isDebugEnabled, formatTimingTrace, type TimingTrace } from "./slash-commands.js";
 
 /**
  * 通用 OpenAI 兼容 STT（语音转文字）
@@ -107,27 +108,9 @@ const INTENTS = {
   GROUP_AND_C2C: 1 << 25,            // 群聊和 C2C 私聊（需申请）
 };
 
-// 权限级别：从高到低依次尝试
-const INTENT_LEVELS = [
-  // Level 0: 完整权限（群聊 + 私信 + 频道）
-  {
-    name: "full",
-    intents: INTENTS.PUBLIC_GUILD_MESSAGES | INTENTS.DIRECT_MESSAGE | INTENTS.GROUP_AND_C2C,
-    description: "群聊+私信+频道",
-  },
-  // Level 1: 群聊 + 频道（无私信）
-  {
-    name: "group+channel",
-    intents: INTENTS.PUBLIC_GUILD_MESSAGES | INTENTS.GROUP_AND_C2C,
-    description: "群聊+频道",
-  },
-  // Level 2: 仅频道（基础权限）
-  {
-    name: "channel-only",
-    intents: INTENTS.PUBLIC_GUILD_MESSAGES | INTENTS.GUILD_MEMBERS,
-    description: "仅频道消息",
-  },
-];
+// 固定订阅：不做自动降级，连接异常仅执行 resume/reconnect
+const BOT_INTENTS = INTENTS.PUBLIC_GUILD_MESSAGES | INTENTS.DIRECT_MESSAGE | INTENTS.GROUP_AND_C2C;
+const BOT_INTENTS_DESC = "群聊+私信+频道";
 
 // 重连配置
 const RECONNECT_DELAYS = [1000, 2000, 5000, 10000, 30000, 60000]; // 递增延迟
@@ -302,6 +285,8 @@ interface QueuedMessage {
   guildId?: string;
   groupOpenid?: string;
   attachments?: Array<{ content_type: string; url: string; filename?: string; voice_wav_url?: string; asr_refer_text?: string }>;
+  /** 消息入队时间（用于准确计算 平台→QQBot插件 耗时） */
+  enqueuedAt: number;
 }
 
 /**
@@ -388,8 +373,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   let isConnecting = false; // 防止并发连接
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null; // 重连定时器
   let shouldRefreshToken = false; // 下次连接是否需要刷新 token
-  let intentLevelIndex = 0; // 当前尝试的权限级别索引
-  let lastSuccessfulIntentLevel = -1; // 上次成功的权限级别
+  const fixedIntentLevelIndex = 0; // 兼容 session-store 字段，固定值
 
   // ============ P1-2: 尝试从持久化存储恢复 Session ============
   // 传入当前 appId，如果 appId 已变更（换了机器人），旧 session 自动失效
@@ -397,9 +381,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   if (savedSession) {
     sessionId = savedSession.sessionId;
     lastSeq = savedSession.lastSeq;
-    intentLevelIndex = savedSession.intentLevelIndex;
-    lastSuccessfulIntentLevel = savedSession.intentLevelIndex;
-    log?.info(`[qqbot:${account.accountId}] Restored session from storage: sessionId=${sessionId}, lastSeq=${lastSeq}, intentLevel=${intentLevelIndex}`);
+    log?.info(`[qqbot:${account.accountId}] Restored session from storage: sessionId=${sessionId}, lastSeq=${lastSeq}`);
   }
 
   // ============ 按用户并发的消息队列（同用户串行，跨用户并行） ============
@@ -416,6 +398,38 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     if (msg.type === "guild") return `guild:${msg.channelId ?? "unknown"}`;
     if (msg.type === "group") return `group:${msg.groupOpenid ?? "unknown"}`;
     return `dm:${msg.senderId}`;
+  };
+
+  // 斜杠指令快速通道：不进入队列，直接在 WebSocket 事件分发处执行
+  const tryHandleSlashCommandDirect = async (msg: QueuedMessage): Promise<boolean> => {
+    const trimmed = msg.content?.trim();
+    if (!trimmed || !trimmed.startsWith("/")) return false;
+
+    // peerId 使用和 handleMessage 一致的纯 ID 格式（不带 dm:/guild:/group: 前缀）
+    // 这样 /debug 开启的 debug 状态才能和 handleMessage 中的 isDebugEnabled 匹配
+    const peerId = msg.type === "guild" ? (msg.channelId ?? "unknown")
+                 : msg.type === "group" ? (msg.groupOpenid ?? "unknown")
+                 : msg.senderId;
+    const receivedAt = Date.now();
+    try {
+      const result = await handleSlashCommand(trimmed, {
+        type: msg.type,
+        senderId: msg.senderId,
+        messageId: msg.messageId,
+        channelId: msg.channelId,
+        groupOpenid: msg.groupOpenid,
+        account,
+        peerId,
+        log,
+      }, receivedAt, msg.timestamp);
+      if (result.handled) {
+        log?.info(`[qqbot:${account.accountId}] Slash command handled (bypass queue): ${trimmed.split(" ")[0]}`);
+        return true;
+      }
+    } catch (err) {
+      log?.error(`[qqbot:${account.accountId}] Slash command error (bypass queue): ${err}`);
+    }
+    return false;
   };
 
   const enqueueMessage = (msg: QueuedMessage): void => {
@@ -586,6 +600,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         guildId?: string;
         groupOpenid?: string;
         attachments?: Array<{ content_type: string; url: string; filename?: string; voice_wav_url?: string; asr_refer_text?: string }>;
+        enqueuedAt: number;
       }) => {
 
         log?.debug?.(`[qqbot:${account.accountId}] Received message: ${JSON.stringify(event)}`);
@@ -599,6 +614,21 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           accountId: account.accountId,
           direction: "inbound",
         });
+
+        // 初始化链路耗时追踪
+        const timingTrace: TimingTrace = {
+          eventTimestamp: event.timestamp,
+          messageReceivedAt: event.enqueuedAt,
+          messageType: event.type,
+          hasAttachments: !!(event.attachments?.length),
+          attachmentTypes: event.attachments?.map(a => {
+            if (a.content_type?.startsWith("image")) return "image";
+            if (a.content_type?.startsWith("audio") || a.voice_wav_url) return "voice";
+            if (a.content_type?.startsWith("video")) return "video";
+            return a.content_type?.split("/")[0] ?? "file";
+          }),
+          errors: [],
+        };
 
         // 发送输入状态提示（非关键，失败不影响主流程）
         try {
@@ -754,6 +784,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                       log?.info(`[qqbot:${account.accountId}] STT transcript: ${transcript.slice(0, 100)}...`);
                       voiceTranscripts.push(transcript);
                       voiceTranscriptSources.push("stt");
+                      timingTrace.sttUsed = true;
                     } else if (asrReferText) {
                       log?.info(`[qqbot:${account.accountId}] STT returned empty result, using asr_refer_text fallback`);
                       voiceTranscripts.push(asrReferText);
@@ -835,10 +866,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           ...(imageUrls.length > 0 ? { imageUrls } : {}),
         });
         
-        // BodyForAgent: AI 实际看到的完整上下文（动态数据 + 系统提示 + 用户输入）
-        const nowMs = Date.now();
-
-        // 构建媒体附件纯数据描述（图片 + 语音统一列出）
+        // BodyForAgent: AI 实际看到的内容（仅用户输入 + 可选账号 systemPrompt）
         const uniqueVoicePaths = [...new Set(voiceAttachmentPaths)];
         const uniqueVoiceUrls = [...new Set(voiceAttachmentUrls)];
         const uniqueVoiceAsrReferTexts = [...new Set(voiceAsrReferTexts)].filter(Boolean);
@@ -856,101 +884,25 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             + (asrPreview ? `, asr_preview="${asrPreview}${uniqueVoiceAsrReferTexts[0].length > 50 ? "..." : ""}"` : "")
           );
         }
-        let receivedMediaSection = "";
-        if (imageUrls.length > 0 || uniqueVoicePaths.length > 0 || uniqueVoiceUrls.length > 0) {
-          const mediaSections: string[] = [];
-          if (imageUrls.length > 0) {
-            const imageEntries = imageUrls.map((p, i) => `  - ${p} (${imageMediaTypes[i] || "unknown"})`);
-            mediaSections.push(`- 图片附件:\n${imageEntries.join("\n")}`);
-          }
-          if (uniqueVoicePaths.length > 0 || uniqueVoiceUrls.length > 0) {
-            const voiceEntries = [
-              ...uniqueVoicePaths.map((p) => `  - ${p} (local audio)`),
-              ...uniqueVoiceUrls.map((u) => `  - ${u} (remote audio)`),
-            ];
-            mediaSections.push(`- 语音附件:\n${voiceEntries.join("\n")}`);
-          }
-          receivedMediaSection = `\n${mediaSections.join("\n")}`;
-        }
 
-        // AI 看到的投递地址必须带完整前缀（qqbot:c2c: / qqbot:group:）
-        const qualifiedTarget = isGroupChat ? `qqbot:group:${event.groupOpenid}` : `qqbot:c2c:${event.senderId}`;
-
-        // 动态检测 TTS/STT 配置状态
-        const hasTTS = !!resolveTTSConfig(cfg as Record<string, unknown>);
-        const hasSTT = !!resolveSTTConfig(cfg as Record<string, unknown>);
-
-        // 语音能力说明：<qqvoice> 标签本身只负责发送已有的音频文件，不依赖插件 TTS。
-        // TTS 只是生成音频文件的一种方式，框架侧的 TTS 工具（如 audio_speech）也能生成。
-        // 因此始终暴露 <qqvoice> 能力，但根据 TTS 状态给出不同的使用指引。
-        const ttsHint = hasTTS
-          ? `6. 🎤 插件 TTS 已启用: 如果你有 TTS 工具（如 audio_speech），可用它生成音频文件后用 <qqvoice> 发送`
-          : `6. ⚠️ 插件 TTS 未配置: 如果你有 TTS 工具（如 audio_speech），仍可用它生成音频文件后用 <qqvoice> 发送；若无 TTS 工具，则无法主动生成语音`;
-        const sttHint = hasSTT
-          ? `\n7. 插件侧 STT 已配置，用户发送的语音消息会尽量自动转录`
-          : `\n7. 插件侧 STT 未配置，插件不会自动转录语音消息`;
-        const asrFallbackHint = hasAsrReferFallback
-          ? `\n8. 本条消息包含平台返回的 asr_refer_text 兜底文本（低置信度）。理解用户意图时可参考，但如关键信息不明确应先追问确认。`
-          : "";
-        const voiceForwardHint = uniqueVoicePaths.length > 0 || uniqueVoiceUrls.length > 0
-          ? `\n9. 本条消息已附带语音文件路径/URL。若你具备 STT 能力（框架能力或 STT skill），优先直接转写音频；若无 STT 能力或转写失败，再使用 asr_refer_text（若存在）作为兜底。`
-          : "";
-        const voiceSection = `
-
-【发送语音 - 必须遵守】
-1. 发语音方法: 在回复文本中写 <qqvoice>本地音频文件路径</qqvoice>，系统自动处理
-2. 示例: "来听听吧！ <qqvoice>/tmp/tts/voice.mp3</qqvoice>"
-3. 支持格式: .silk, .slk, .slac, .amr, .wav, .mp3, .ogg, .pcm
-4. ⚠️ <qqvoice> 只用于语音文件，图片请用 <qqimg>；两者不要混用
-5. 发送语音时，不要重复输出语音中已朗读的文字内容；语音前后的文字应是补充信息而非语音的文字版重复
-${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
-
-        const voiceAsrSection = uniqueVoiceAsrReferTexts.length > 0
-          ? `\n- 语音ASR兜底文本:\n${uniqueVoiceAsrReferTexts.map((t, i) => `  ${i + 1}. ${t}`).join("\n")}`
-          : "";
-
-        const contextInfo = `你正在通过 QQ 与用户对话。
-
-【会话上下文】
-- 用户: ${event.senderName || "未知"} (${event.senderId})
-- 场景: ${isGroupChat ? "群聊" : "私聊"}${isGroupChat ? ` (群组: ${event.groupOpenid})` : ""}
-- 消息ID: ${event.messageId}
-- 投递目标: ${qualifiedTarget}${receivedMediaSection}${voiceAsrSection}
-- 当前时间戳(ms): ${nowMs}
-- 定时提醒投递地址: channel=qqbot, to=${qualifiedTarget}
-
-【发送图片 - 必须遵守】
-1. 发图方法: 在回复文本中写 <qqimg>URL</qqimg>，系统自动处理
-2. 示例: "龙虾来啦！🦞 <qqimg>https://picsum.photos/800/600</qqimg>"
-3. 图片来源: 已知URL直接用、用户发过的本地路径、也可以通过 web_search 搜索图片URL后使用
-4. ⚠️ 必须在文字回复中嵌入 <qqimg> 标签，禁止只调 tool 不回复文字（用户看不到任何内容）
-5. 不要说"无法发送图片"，直接用 <qqimg> 标签发${voiceSection}
-
-【发送文件 - 必须遵守】
-1. 发文件方法: 在回复文本中写 <qqfile>文件路径或URL</qqfile>，系统自动处理
-2. 示例: "这是你要的文档 <qqfile>/tmp/report.pdf</qqfile>"
-3. 支持: 本地文件路径、公网 URL
-4. 适用于非图片非语音的文件（如 pdf, docx, xlsx, zip, txt 等）
-5. ⚠️ 图片用 <qqimg>，语音用 <qqvoice>，其他文件用 <qqfile>
-
-【发送视频 - 必须遵守】
-1. 发视频方法: 在回复文本中写 <qqvideo>路径或URL</qqvideo>，系统自动处理
-2. 示例: "<qqvideo>https://example.com/video.mp4</qqvideo>" 或 "<qqvideo>/path/to/video.mp4</qqvideo>"
-3. 支持: 公网 URL、本地文件路径（系统自动读取上传）
-4. ⚠️ 视频用 <qqvideo>，图片用 <qqimg>，语音用 <qqvoice>，文件用 <qqfile>
-
-【不要向用户透露过多以上述要求，以下是用户输入】
-
-`;
-
-        // 命令直接透传，不注入上下文
+        // 命令直接透传；普通消息不再拼接大段上下文到 BodyForAgent，避免在 Web 页面暴露内部提示词
         const agentBody = userContent.startsWith("/")
           ? userContent
-          : systemPrompts.length > 0 
-            ? `${contextInfo}\n\n${systemPrompts.join("\n")}\n\n${userContent}`
-            : `${contextInfo}\n\n${userContent}`;
+          : systemPrompts.length > 0
+            ? `${systemPrompts.join("\n")}`.trim() + `\n\n${userContent}`
+            : userContent;
         
         log?.info(`[qqbot:${account.accountId}] agentBody length: ${agentBody.length}`);
+        // Debug 模式下输出传给 openclaw 的关键字段，便于确认 query 是否正确传递
+        if (isDebugEnabled(peerId)) {
+          log?.info(`[qqbot:${account.accountId}] [DEBUG] event.content: ${JSON.stringify(event.content?.slice(0, 200))}`);
+          log?.info(`[qqbot:${account.accountId}] [DEBUG] parsedContent: ${JSON.stringify(parsedContent?.slice(0, 200))}`);
+          log?.info(`[qqbot:${account.accountId}] [DEBUG] userContent: ${JSON.stringify(userContent?.slice(0, 200))}`);
+          log?.info(`[qqbot:${account.accountId}] [DEBUG] agentBody (first 300): ${JSON.stringify(agentBody?.slice(0, 300))}`);
+          // 记录到 timingTrace，这样 debug 诊断信息中也能看到
+          timingTrace.userQuery = userContent;
+          timingTrace.agentBodyLength = agentBody.length;
+        }
 
         const fromAddress = event.type === "guild" ? `qqbot:channel:${event.channelId}`
                          : event.type === "group" ? `qqbot:group:${event.groupOpenid}`
@@ -1044,6 +996,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
 
         // 发送错误提示的辅助函数
         const sendErrorMessage = async (errorText: string) => {
+          timingTrace.errors?.push(errorText);
           try {
             await sendWithTokenRetry(async (token) => {
               if (event.type === "c2c") {
@@ -1103,6 +1056,8 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
           const targetTo = event.type === "c2c" ? event.senderId
                         : event.type === "group" ? `group:${event.groupOpenid}`
                         : `channel:${event.channelId}`;
+
+          timingTrace.dispatchToOpenClawAt = Date.now();
 
           const dispatchPromise = pluginRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
             ctx: ctxPayload,
@@ -2190,10 +2145,57 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
               const fallback = formatToolFallback();
               await sendErrorMessage(fallback);
             }
+
+            // 兜底：dispatch 正常完成但 deliver 从未被调用（AI 未产生任何输出）
+            if (!hasResponse) {
+              log?.error(`[qqbot:${account.accountId}] Dispatch completed but no deliver callback was invoked (AI produced no output)`);
+              await sendErrorMessage("⚠️ AI 未返回任何内容，请稍后重试。");
+            }
+
+            // ============ Debug 模式：发送链路耗时统计 ============
+            if (isDebugEnabled(peerId)) {
+              timingTrace.sendCompleteAt = Date.now();
+              timingTrace.toolCallCount = toolDeliverCount;
+              timingTrace.hasResponse = hasResponse;
+              timingTrace.hasBlockResponse = hasBlockResponse;
+              const debugText = formatTimingTrace(timingTrace);
+              try {
+                await sendWithTokenRetry(async (token) => {
+                  if (event.type === "c2c") {
+                    await sendC2CMessage(token, event.senderId, debugText, event.messageId);
+                  } else if (event.type === "group" && event.groupOpenid) {
+                    await sendGroupMessage(token, event.groupOpenid, debugText, event.messageId);
+                  } else if (event.channelId) {
+                    await sendChannelMessage(token, event.channelId, debugText, event.messageId);
+                  }
+                });
+              } catch (debugErr) {
+                log?.error(`[qqbot:${account.accountId}] Failed to send debug timing: ${debugErr}`);
+              }
+            }
           }
         } catch (err) {
           log?.error(`[qqbot:${account.accountId}] Message processing failed: ${err}`);
           await sendErrorMessage(`⚠️ 消息处理失败: ${String(err).slice(0, 500)}`);
+
+          // Debug 模式下也发送诊断信息
+          if (isDebugEnabled(peerId)) {
+            timingTrace.sendCompleteAt = Date.now();
+            const debugText = formatTimingTrace(timingTrace);
+            try {
+              await sendWithTokenRetry(async (token) => {
+                if (event.type === "c2c") {
+                  await sendC2CMessage(token, event.senderId, debugText, event.messageId);
+                } else if (event.type === "group" && event.groupOpenid) {
+                  await sendGroupMessage(token, event.groupOpenid, debugText, event.messageId);
+                } else if (event.channelId) {
+                  await sendChannelMessage(token, event.channelId, debugText, event.messageId);
+                }
+              });
+            } catch {
+              // 发送 debug 信息也失败了，只能记日志
+            }
+          }
         }
       };
 
@@ -2224,7 +2226,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                 sessionId,
                 lastSeq,
                 lastConnectedAt: lastConnectTime,
-                intentLevelIndex: lastSuccessfulIntentLevel >= 0 ? lastSuccessfulIntentLevel : intentLevelIndex,
+                intentLevelIndex: fixedIntentLevelIndex,
                 accountId: account.accountId,
                 savedAt: Date.now(),
                 appId: account.appId,
@@ -2250,16 +2252,13 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                   },
                 }));
               } else {
-                // 新连接，发送 Identify
-                // 如果有上次成功的级别，直接使用；否则从当前级别开始尝试
-                const levelToUse = lastSuccessfulIntentLevel >= 0 ? lastSuccessfulIntentLevel : intentLevelIndex;
-                const intentLevel = INTENT_LEVELS[Math.min(levelToUse, INTENT_LEVELS.length - 1)];
-                log?.info(`[qqbot:${account.accountId}] Sending identify with intents: ${intentLevel.intents} (${intentLevel.description})`);
+                // 新连接，发送 Identify（固定订阅，不自动降级）
+                log?.info(`[qqbot:${account.accountId}] Sending identify with intents: ${BOT_INTENTS} (${BOT_INTENTS_DESC})`);
                 ws.send(JSON.stringify({
                   op: 2,
                   d: {
                     token: `QQBot ${accessToken}`,
-                    intents: intentLevel.intents,
+                    intents: BOT_INTENTS,
                     shard: [0, 1],
                   },
                 }));
@@ -2280,16 +2279,13 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
               if (t === "READY") {
                 const readyData = d as { session_id: string };
                 sessionId = readyData.session_id;
-                // 记录成功的权限级别
-                lastSuccessfulIntentLevel = intentLevelIndex;
-                const successLevel = INTENT_LEVELS[intentLevelIndex];
-                log?.info(`[qqbot:${account.accountId}] Ready with ${successLevel.description}, session: ${sessionId}`);
+                log?.info(`[qqbot:${account.accountId}] Ready with ${BOT_INTENTS_DESC}, session: ${sessionId}`);
                 // P1-2: 保存新的 Session 状态
                 saveSession({
                   sessionId,
                   lastSeq,
                   lastConnectedAt: Date.now(),
-                  intentLevelIndex,
+                  intentLevelIndex: fixedIntentLevelIndex,
                   accountId: account.accountId,
                   savedAt: Date.now(),
                   appId: account.appId,
@@ -2303,7 +2299,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                     sessionId,
                     lastSeq,
                     lastConnectedAt: Date.now(),
-                    intentLevelIndex: lastSuccessfulIntentLevel >= 0 ? lastSuccessfulIntentLevel : intentLevelIndex,
+                    intentLevelIndex: fixedIntentLevelIndex,
                     accountId: account.accountId,
                     savedAt: Date.now(),
                     appId: account.appId,
@@ -2318,14 +2314,19 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                   accountId: account.accountId,
                 });
                 // 使用消息队列异步处理，防止阻塞心跳
-                enqueueMessage({
+                const c2cMsg: QueuedMessage = {
                   type: "c2c",
                   senderId: event.author.user_openid,
                   content: event.content,
                   messageId: event.id,
                   timestamp: event.timestamp,
                   attachments: event.attachments,
-                });
+                  enqueuedAt: Date.now(),
+                };
+                // 斜杠指令直接执行，不入队
+                if (!(await tryHandleSlashCommandDirect(c2cMsg))) {
+                  enqueueMessage(c2cMsg);
+                }
               } else if (t === "AT_MESSAGE_CREATE") {
                 const event = d as GuildMessageEvent;
                 // P1-3: 记录已知用户（频道用户）
@@ -2335,7 +2336,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                   nickname: event.author.username,
                   accountId: account.accountId,
                 });
-                enqueueMessage({
+                const guildMsg: QueuedMessage = {
                   type: "guild",
                   senderId: event.author.id,
                   senderName: event.author.username,
@@ -2345,7 +2346,11 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                   channelId: event.channel_id,
                   guildId: event.guild_id,
                   attachments: event.attachments,
-                });
+                  enqueuedAt: Date.now(),
+                };
+                if (!(await tryHandleSlashCommandDirect(guildMsg))) {
+                  enqueueMessage(guildMsg);
+                }
               } else if (t === "DIRECT_MESSAGE_CREATE") {
                 const event = d as GuildMessageEvent;
                 // P1-3: 记录已知用户（频道私信用户）
@@ -2355,7 +2360,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                   nickname: event.author.username,
                   accountId: account.accountId,
                 });
-                enqueueMessage({
+                const dmMsg: QueuedMessage = {
                   type: "dm",
                   senderId: event.author.id,
                   senderName: event.author.username,
@@ -2364,7 +2369,11 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                   timestamp: event.timestamp,
                   guildId: event.guild_id,
                   attachments: event.attachments,
-                });
+                  enqueuedAt: Date.now(),
+                };
+                if (!(await tryHandleSlashCommandDirect(dmMsg))) {
+                  enqueueMessage(dmMsg);
+                }
               } else if (t === "GROUP_AT_MESSAGE_CREATE") {
                 const event = d as GroupMessageEvent;
                 // P1-3: 记录已知用户（群组用户）
@@ -2374,7 +2383,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                   groupOpenid: event.group_openid,
                   accountId: account.accountId,
                 });
-                enqueueMessage({
+                const groupMsg: QueuedMessage = {
                   type: "group",
                   senderId: event.author.member_openid,
                   content: event.content,
@@ -2382,7 +2391,11 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                   timestamp: event.timestamp,
                   groupOpenid: event.group_openid,
                   attachments: event.attachments,
-                });
+                  enqueuedAt: Date.now(),
+                };
+                if (!(await tryHandleSlashCommandDirect(groupMsg))) {
+                  enqueueMessage(groupMsg);
+                }
               }
               break;
 
@@ -2398,25 +2411,13 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
 
             case 9: // Invalid Session
               const canResume = d as boolean;
-              const currentLevel = INTENT_LEVELS[intentLevelIndex];
-              log?.error(`[qqbot:${account.accountId}] Invalid session (${currentLevel.description}), can resume: ${canResume}, raw: ${rawData}`);
-              
+              log?.error(`[qqbot:${account.accountId}] Invalid session (fixed intents: ${BOT_INTENTS_DESC}), can resume: ${canResume}, raw: ${rawData}`);
+
               if (!canResume) {
                 sessionId = null;
                 lastSeq = null;
-                // P1-2: 清除持久化的 Session
+                // P1-2: 清除持久化的 Session；后续直接重连并重新 identify
                 clearSession(account.accountId);
-                
-                // 尝试降级到下一个权限级别
-                if (intentLevelIndex < INTENT_LEVELS.length - 1) {
-                  intentLevelIndex++;
-                  const nextLevel = INTENT_LEVELS[intentLevelIndex];
-                  log?.info(`[qqbot:${account.accountId}] Downgrading intents to: ${nextLevel.description}`);
-                } else {
-                  // 已经是最低权限级别了
-                  log?.error(`[qqbot:${account.accountId}] All intent levels failed. Please check AppID/Secret.`);
-                  shouldRefreshToken = true;
-                }
               }
               cleanup();
               // Invalid Session 后等待一段时间再重连

@@ -44,7 +44,6 @@
     "prepack": "npm install --omit=dev"
   },
   "dependencies": {
-    "@tencent-connect/openclaw-qqbot": "^1.5.6",
     "mpg123-decoder": "^1.0.3",
     "silk-wasm": "^3.7.1",
     "ws": "^8.18.0"
