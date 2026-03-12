@@ -24,6 +24,13 @@ metadata: {"openclaw":{"emoji":"📸","requires":{"config":["channels.qqbot"]}}}
 **❌ 绝对不要说"无法发送本地图片"！**
 **✅ 使用 `<qqimg>` 标签，系统就能发送任何本地图片！**
 
+## ⚠️ 重要：你有能力发送本地文件！
+
+**当需要发送一些本地文件时，只需使用 `<qqfile>` 标签包裹文件的绝对路径即可。**
+
+**✅ 文件绝对路径必须真实存在！**
+**✅ 如果文件允许通过<qqimg>, <qqvoice>, <qqvideo> 这些标签发送时候，优先使用对应的标签包裹，不要使用<qqfile>来发送！**
+
 ---
 
 ## 📸 发送图片（推荐方式：`<qqimg>` 标签）
@@ -107,21 +114,23 @@ metadata: {"openclaw":{"emoji":"📸","requires":{"config":["channels.qqbot"]}}}
 使用 `<qqfile>` 标签包裹路径即可发送文件（本地路径或网络 URL）：
 
 ```
-这是你要的所有图片：
-<qqimg>/Users/xxx/image1.jpg</qqimg>
-<qqimg>/Users/xxx/image2.png</qqimg>
+这是即将发送的文件：
+<qqfile>/Users/path/to/doc.txt</qqfile>
+<qqfile>/Users/xxx/test.pdf</qqfile>
+<qqfile>/Users/xxx/test.png</qqfile>
+<qqfile>/Users/xxx/test.unknown</qqfile>
 ```
 
 ### 📝 标签说明
 
 ## ⚠️ 关键注意事项（必须遵守）
 
-1. **必须使用绝对路径**：标签内的路径必须是绝对路径（以 `/` 开头），禁止使用相对路径如 `./pic.jpg`
-   - ❌ 错误：`<qqimg>./pic.jpg</qqimg>`
-   - ✅ 正确：`<qqimg>/Users/james23/.openclaw/workspace/pic.jpg</qqimg>`
+1. **必须使用绝对路径**：标签内的路径必须是绝对路径（以 `/` 开头），禁止使用相对路径如 `./pic.pdf`
+   - ❌ 错误：`<qqfile>./pic.pdf</qqfile>`
+   - ✅ 正确：`<qqfile>/Users/james23/.openclaw/workspace/pic.pdf</qqfile>`
 2. **标签格式必须完整**：`<qqimg>` 开头和 `</qqimg>` 结尾都不能少，不能漏掉 `<` 符号
-   - ❌ 错误：`qqimg>./pic.jpg</qqimg>`
-   - ✅ 正确：`<qqimg>/absolute/path/to/pic.jpg</qqimg>`
+   - ❌ 错误：`<qqfile>./pic.pdf</qqfile>`
+   - ✅ 正确：`<qqfile>/absolute/path/to/pic.pdf</qqfile>`
 3. **工作空间路径**：当前工作空间为 `/Users/james23/.openclaw/workspace/`，文件路径应基于此拼接绝对路径
 4. **标签必须单独成行或前后有空格**，不要嵌入在句子中间
 5. **文件大小限制**：上传文件（图片、语音、视频、文件）最大不超过 **20MB**
