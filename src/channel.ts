@@ -13,40 +13,7 @@ import { sendText, sendMedia } from "./outbound.js";
 import { startGateway } from "./gateway.js";
 import { qqbotOnboardingAdapter } from "./onboarding.js";
 import { getQQBotRuntime } from "./runtime.js";
-
-/**
- * 简单的文本分块函数
- * 用于预先分块长文本
- */
-function chunkText(text: string, limit: number): string[] {
-  if (text.length <= limit) return [text];
-  
-  const chunks: string[] = [];
-  let remaining = text;
-  
-  while (remaining.length > 0) {
-    if (remaining.length <= limit) {
-      chunks.push(remaining);
-      break;
-    }
-    
-    // 尝试在换行处分割
-    let splitAt = remaining.lastIndexOf("\n", limit);
-    if (splitAt <= 0 || splitAt < limit * 0.5) {
-      // 没找到合适的换行，尝试在空格处分割
-      splitAt = remaining.lastIndexOf(" ", limit);
-    }
-    if (splitAt <= 0 || splitAt < limit * 0.5) {
-      // 还是没找到，强制在 limit 处分割
-      splitAt = limit;
-    }
-    
-    chunks.push(remaining.slice(0, splitAt));
-    remaining = remaining.slice(splitAt).trimStart();
-  }
-  
-  return chunks;
-}
+import { chunkText } from "./utils/chunk-helper.js";
 
 export const qqbotPlugin: ChannelPlugin<ResolvedQQBotAccount> = {
   id: "qqbot",

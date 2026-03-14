@@ -23,6 +23,8 @@ export interface ResolvedQQBotAccount {
   imageServerBaseUrl?: string;
   /** 是否支持 markdown 消息（默认 true） */
   markdownSupport: boolean;
+  /** 是否启用块流式响应（默认 true，即按段落逐步发送，保持向后兼容） */
+  blockStreaming: boolean;
   config: QQBotAccountConfig;
 }
 
@@ -43,6 +45,12 @@ export interface QQBotAccountConfig {
   imageServerBaseUrl?: string;
   /** 是否支持 markdown 消息（默认 true，设为 false 可禁用） */
   markdownSupport?: boolean;
+  /**
+   * 是否启用块流式响应（默认 true）
+   * true: AI 生成过程中按段落逐步发送，响应更快（默认，保持向后兼容）
+   * false: 等待完整回复后一次性发送，支持正确的分块和媒体标签处理
+   */
+  blockStreaming?: boolean;
   /**
    * @deprecated 请使用 audioFormatPolicy.uploadDirectFormats
    * 可直接上传的音频格式（不转换为 SILK），向后兼容

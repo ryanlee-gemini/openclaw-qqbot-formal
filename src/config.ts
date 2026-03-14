@@ -82,6 +82,7 @@ export function resolveQQBotAccount(
       systemPrompt: qqbot?.systemPrompt,
       imageServerBaseUrl: qqbot?.imageServerBaseUrl,
       markdownSupport: qqbot?.markdownSupport ?? true,
+      blockStreaming: qqbot?.blockStreaming !== false,
     };
     appId = normalizeAppId(qqbot?.appId);
   } else {
@@ -118,6 +119,7 @@ export function resolveQQBotAccount(
     systemPrompt: accountConfig.systemPrompt,
     imageServerBaseUrl: accountConfig.imageServerBaseUrl || process.env.QQBOT_IMAGE_SERVER_BASE_URL,
     markdownSupport: accountConfig.markdownSupport !== false,
+    blockStreaming: accountConfig.blockStreaming !== false,
     config: accountConfig,
   };
 }

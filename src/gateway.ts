@@ -9,6 +9,7 @@ import { getQQBotRuntime } from "./runtime.js";
 import { setRefIndex, getRefIndex, formatRefEntryForAgent, flushRefIndex, type RefAttachmentSummary } from "./ref-index-store.js";
 import { startImageServer, isImageServerRunning, downloadFile, type ImageServerConfig } from "./image-server.js";
 import { getImageSize, formatQQBotMarkdownImage, hasQQBotImageSize, DEFAULT_IMAGE_SIZE } from "./utils/image-size.js";
+import { chunkText } from "./utils/chunk-helper.js";
 import { parseQQBotPayload, encodePayloadForCron, isCronReminderPayload, isMediaPayload, type CronReminderPayload, type MediaPayload } from "./utils/payload.js";
 import { convertSilkToWav, isVoiceAttachment, formatDuration, resolveTTSConfig, textToSilk, audioFileToSilkBase64, waitForFile, isAudioFile } from "./utils/audio-convert.js";
 import { normalizeMediaTags } from "./utils/media-tags.js";
@@ -2251,17 +2252,34 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                   // 🔹 第三步：发送带公网图片的 markdown 消息
                   if (textWithoutImages.trim()) {
                     try {
-                      await sendWithTokenRetry(async (token) => {
-                        const ref = consumeQuoteRef();
-                        if (event.type === "c2c") {
-                          return await sendC2CMessage(token, event.senderId, textWithoutImages, event.messageId, ref);
-                        } else if (event.type === "group" && event.groupOpenid) {
-                          return await sendGroupMessage(token, event.groupOpenid, textWithoutImages, event.messageId);
-                        } else if (event.channelId) {
-                          return await sendChannelMessage(token, event.channelId, textWithoutImages, event.messageId);
+                      if (account.blockStreaming) {
+                        await sendWithTokenRetry(async (token) => {
+                          const ref = consumeQuoteRef();
+                          if (event.type === "c2c") {
+                            return await sendC2CMessage(token, event.senderId, textWithoutImages, event.messageId, ref);
+                          } else if (event.type === "group" && event.groupOpenid) {
+                            return await sendGroupMessage(token, event.groupOpenid, textWithoutImages, event.messageId);
+                          } else if (event.channelId) {
+                            return await sendChannelMessage(token, event.channelId, textWithoutImages, event.messageId);
+                          }
+                        });
+                        log?.info(`[qqbot:${account.accountId}] Sent markdown message with ${httpImageUrls.length} HTTP images (${event.type})`);
+                      } else {
+                        const textChunks = chunkText(textWithoutImages, 2000);
+                        for (const chunk of textChunks) {
+                          await sendWithTokenRetry(async (token) => {
+                            const ref = consumeQuoteRef();
+                            if (event.type === "c2c") {
+                              return await sendC2CMessage(token, event.senderId, chunk, event.messageId, ref);
+                            } else if (event.type === "group" && event.groupOpenid) {
+                              return await sendGroupMessage(token, event.groupOpenid, chunk, event.messageId);
+                            } else if (event.channelId) {
+                              return await sendChannelMessage(token, event.channelId, chunk, event.messageId);
+                            }
+                          });
                         }
-                      });
-                      log?.info(`[qqbot:${account.accountId}] Sent markdown message with ${httpImageUrls.length} HTTP images (${event.type})`);
+                        log?.info(`[qqbot:${account.accountId}] Sent markdown message with ${httpImageUrls.length} HTTP images (${event.type}), chunks: ${textChunks.length}`);
+                      }
                     } catch (err) {
                       log?.error(`[qqbot:${account.accountId}] Failed to send markdown message: ${err}`);
                     }
@@ -2303,17 +2321,34 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
 
                     // 发送文本消息
                     if (textWithoutImages.trim()) {
-                      await sendWithTokenRetry(async (token) => {
-                        const ref = consumeQuoteRef();
-                        if (event.type === "c2c") {
-                          return await sendC2CMessage(token, event.senderId, textWithoutImages, event.messageId, ref);
-                        } else if (event.type === "group" && event.groupOpenid) {
-                          return await sendGroupMessage(token, event.groupOpenid, textWithoutImages, event.messageId);
-                        } else if (event.channelId) {
-                          return await sendChannelMessage(token, event.channelId, textWithoutImages, event.messageId);
+                      if (account.blockStreaming) {
+                        await sendWithTokenRetry(async (token) => {
+                          const ref = consumeQuoteRef();
+                          if (event.type === "c2c") {
+                            return await sendC2CMessage(token, event.senderId, textWithoutImages, event.messageId, ref);
+                          } else if (event.type === "group" && event.groupOpenid) {
+                            return await sendGroupMessage(token, event.groupOpenid, textWithoutImages, event.messageId);
+                          } else if (event.channelId) {
+                            return await sendChannelMessage(token, event.channelId, textWithoutImages, event.messageId);
+                          }
+                        });
+                        log?.info(`[qqbot:${account.accountId}] Sent text reply (${event.type})`);
+                      } else {
+                        const textChunks = chunkText(textWithoutImages, 2000);
+                        for (const chunk of textChunks) {
+                          await sendWithTokenRetry(async (token) => {
+                            const ref = consumeQuoteRef();
+                            if (event.type === "c2c") {
+                              return await sendC2CMessage(token, event.senderId, chunk, event.messageId, ref);
+                            } else if (event.type === "group" && event.groupOpenid) {
+                              return await sendGroupMessage(token, event.groupOpenid, chunk, event.messageId);
+                            } else if (event.channelId) {
+                              return await sendChannelMessage(token, event.channelId, chunk, event.messageId);
+                            }
+                          });
                         }
-                      });
-                      log?.info(`[qqbot:${account.accountId}] Sent text reply (${event.type})`);
+                        log?.info(`[qqbot:${account.accountId}] Sent text reply (${event.type}), chunks: ${textChunks.length}`);
+                      }
                     }
                   } catch (err) {
                     log?.error(`[qqbot:${account.accountId}] Send failed: ${err}`);
@@ -2344,7 +2379,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
               },
             },
             replyOptions: {
-              disableBlockStreaming: false,
+              disableBlockStreaming: !account.blockStreaming,
             },
           });
 
