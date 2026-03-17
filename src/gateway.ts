@@ -8,7 +8,7 @@ import { recordKnownUser, flushKnownUsers, listKnownUsers } from "./known-users.
 import { getQQBotRuntime } from "./runtime.js";
 import { setRefIndex, getRefIndex, formatRefEntryForAgent, flushRefIndex, type RefAttachmentSummary } from "./ref-index-store.js";
 import { matchSlashCommand, getPluginVersion, type SlashCommandContext, type SlashCommandFileResult, type QueueSnapshot } from "./slash-commands.js";
-import { triggerUpdateCheck, onUpdateFound, formatUpdateNotice } from "./update-checker.js";
+import { triggerUpdateCheck } from "./update-checker.js";
 import { startImageServer, isImageServerRunning, downloadFile, type ImageServerConfig } from "./image-server.js";
 import { getImageSize, formatQQBotMarkdownImage, hasQQBotImageSize, DEFAULT_IMAGE_SIZE } from "./utils/image-size.js";
 import { parseQQBotPayload, encodePayloadForCron, isCronReminderPayload, isMediaPayload, type CronReminderPayload, type MediaPayload } from "./utils/payload.js";
@@ -410,35 +410,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     }
   }
 
-  // 后台版本检查（detached 子进程，零阻塞）
+  // 后台版本检查（供 /qqbot-version、/qqbot-upgrade 指令被动查询）
   triggerUpdateCheck(log);
-
-  // 注册新版本通知回调：仅发给管理员，带防抖
-  let lastUpdateNotifyAt = 0;
-  const UPDATE_NOTIFY_DEBOUNCE_MS = 5 * 60 * 1000; // 5 分钟内不重复通知
-  onUpdateFound(async (info) => {
-    try {
-      // 防抖：避免短时间内重复推送
-      const now = Date.now();
-      if (now - lastUpdateNotifyAt < UPDATE_NOTIFY_DEBOUNCE_MS) {
-        log?.debug?.(`[qqbot:${account.accountId}] Update notification debounced`);
-        return;
-      }
-      const notice = formatUpdateNotice(info);
-      if (!notice) return;
-      const adminId = resolveAdminOpenId();
-      if (!adminId) {
-        log?.debug?.(`[qqbot:${account.accountId}] No admin or known user to send update notification`);
-        return;
-      }
-      const token = await getAccessToken(account.appId, account.clientSecret);
-      await sendProactiveC2CMessage(token, adminId, notice);
-      lastUpdateNotifyAt = Date.now();
-      log?.info(`[qqbot:${account.accountId}] Sent update notification to admin: ${adminId}`);
-    } catch (err) {
-      log?.debug?.(`[qqbot:${account.accountId}] Failed to send update notification to admin: ${err}`);
-    }
-  });
 
   // 初始化 API 配置（markdown 支持）
   initApiConfig({

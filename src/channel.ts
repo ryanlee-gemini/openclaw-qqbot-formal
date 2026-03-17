@@ -66,7 +66,7 @@ export const qqbotPlugin: ChannelPlugin<ResolvedQQBotAccount> = {
      * blockStreaming: true 表示该 Channel 支持块流式
      * 框架会收集流式响应，然后通过 deliver 回调发送
      */
-    blockStreaming: false,
+    blockStreaming: true,
   },
   reload: { configPrefixes: ["channels.qqbot"] },
   // CLI onboarding wizard
