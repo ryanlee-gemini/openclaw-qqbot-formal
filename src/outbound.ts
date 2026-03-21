@@ -21,12 +21,13 @@ import {
   sendC2CFileMessage,
   sendGroupFileMessage,
   sendC2CMediaMessage,
+  sendGroupMediaMessage,
   MediaFileType,
 } from "./api.js";
 import { isAudioFile, audioFileToSilkBase64, waitForFile, shouldTranscodeVoice } from "./utils/audio-convert.js";
 import { normalizeMediaTags } from "./utils/media-tags.js";
 import { checkFileSize, readFileAsync, fileExistsAsync, isLargeFile, formatFileSize, MAX_UPLOAD_SIZE, getFileSizeAsync } from "./utils/file-utils.js";
-import { chunkedUploadC2C } from "./utils/chunked-upload.js";
+import { chunkedUploadC2C, chunkedUploadGroup } from "./utils/chunked-upload.js";
 import { isLocalPath as isLocalFilePath, normalizePath, sanitizeFileName, getQQBotDataDir } from "./utils/platform.js";
 import { downloadFile } from "./image-server.js";
 
@@ -612,25 +613,38 @@ async function sendVideoFromLocal(ctx: MediaTargetContext, mediaPath: string, pr
     }
   }
 
-  // ============ Group / Channel：Base64 上传 ============
-  const fileBuffer = await readFileAsync(mediaPath);
-  const videoBase64 = fileBuffer.toString("base64");
-  console.log(`${prefix} sendVideoMsg: local video (${formatFileSize(fileBuffer.length)})`);
+  // ============ Group：分片上传 ============
+  if (ctx.targetType === "group") {
+    console.log(`${prefix} sendVideoMsg: group chunked upload (${formatFileSize(fileSize)})`);
+    try {
+      const { appId, clientSecret } = ctx.account;
+      if (!appId || !clientSecret) {
+        return { channel: "qqbot", error: "QQBot not configured (missing appId or clientSecret)" };
+      }
 
-  try {
-    const token = await getToken(ctx.account);
-    if (ctx.targetType === "group") {
-      const r = await sendGroupVideoMessage(token, ctx.targetId, undefined, videoBase64, ctx.replyToId);
+      const uploadResult = await chunkedUploadGroup(
+        appId, clientSecret, ctx.targetId, mediaPath, MediaFileType.VIDEO,
+        {
+          logPrefix: `${prefix} [chunked]`,
+          onProgress: (progress) => {
+            console.log(`${prefix} sendVideoMsg: chunked upload progress ${progress.completedParts}/${progress.totalParts} parts, ${formatFileSize(progress.uploadedBytes)}/${formatFileSize(progress.totalBytes)}`);
+          },
+        },
+      );
+
+      const token = await getToken(ctx.account);
+      const r = await sendGroupMediaMessage(token, ctx.targetId, uploadResult.file_info, ctx.replyToId);
       return { channel: "qqbot", messageId: r.id, timestamp: r.timestamp };
-    } else {
-      console.log(`${prefix} sendVideoMsg: video not supported in channel`);
-      return { channel: "qqbot", error: "Video not supported in channel" };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`${prefix} sendVideoMsg: group chunked upload failed: ${msg}`);
+      return { channel: "qqbot", error: `分片上传失败: ${msg}` };
     }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`${prefix} sendVideoMsg (local) failed: ${msg}`);
-    return { channel: "qqbot", error: msg };
   }
+
+  // Channel: video not supported
+  console.log(`${prefix} sendVideoMsg: video not supported in channel`);
+  return { channel: "qqbot", error: "Video not supported in channel" };
 }
 
 /**
@@ -742,25 +756,38 @@ async function sendDocumentFromLocal(ctx: MediaTargetContext, mediaPath: string,
     }
   }
 
-  // ============ Group / Channel：Base64 上传 ============
-  const fileBuffer = await readFileAsync(mediaPath);
-  const fileBase64 = fileBuffer.toString("base64");
-  console.log(`${prefix} sendDocument: local file (${formatFileSize(fileBuffer.length)})`);
+  // ============ Group：分片上传 ============
+  if (ctx.targetType === "group") {
+    console.log(`${prefix} sendDocument: group chunked upload (${formatFileSize(fileSize)})`);
+    try {
+      const { appId, clientSecret } = ctx.account;
+      if (!appId || !clientSecret) {
+        return { channel: "qqbot", error: "QQBot not configured (missing appId or clientSecret)" };
+      }
 
-  try {
-    const token = await getToken(ctx.account);
-    if (ctx.targetType === "group") {
-      const r = await sendGroupFileMessage(token, ctx.targetId, fileBase64, undefined, ctx.replyToId, fileName);
+      const uploadResult = await chunkedUploadGroup(
+        appId, clientSecret, ctx.targetId, mediaPath, MediaFileType.FILE,
+        {
+          logPrefix: `${prefix} [chunked]`,
+          onProgress: (progress) => {
+            console.log(`${prefix} sendDocument: chunked upload progress ${progress.completedParts}/${progress.totalParts} parts, ${formatFileSize(progress.uploadedBytes)}/${formatFileSize(progress.totalBytes)}`);
+          },
+        },
+      );
+
+      const token = await getToken(ctx.account);
+      const r = await sendGroupMediaMessage(token, ctx.targetId, uploadResult.file_info, ctx.replyToId);
       return { channel: "qqbot", messageId: r.id, timestamp: r.timestamp };
-    } else {
-      console.log(`${prefix} sendDocument: file not supported in channel`);
-      return { channel: "qqbot", error: "File not supported in channel" };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`${prefix} sendDocument: group chunked upload failed: ${msg}`);
+      return { channel: "qqbot", error: `分片上传失败: ${msg}` };
     }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`${prefix} sendDocument (local) failed: ${msg}`);
-    return { channel: "qqbot", error: msg };
   }
+
+  // Channel: file not supported
+  console.log(`${prefix} sendDocument: file not supported in channel`);
+  return { channel: "qqbot", error: "File not supported in channel" };
 }
 
 /**

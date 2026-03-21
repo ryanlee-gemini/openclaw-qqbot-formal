@@ -22,6 +22,9 @@ import {
   c2cUploadPrepare,
   c2cUploadPartFinish,
   c2cCompleteUpload,
+  groupUploadPrepare,
+  groupUploadPartFinish,
+  groupCompleteUpload,
   getAccessToken,
 } from "../api.js";
 import { formatFileSize } from "./file-utils.js";
@@ -144,6 +147,91 @@ export async function chunkedUploadC2C(
   // 4. 完成文件上传
   const finalToken = await getAccessToken(appId, clientSecret);
   const result = await c2cCompleteUpload(finalToken, userId, upload_id);
+
+  console.log(`${prefix} Upload completed: file_uuid=${result.file_uuid}, ttl=${result.ttl}s`);
+
+  return result;
+}
+
+/**
+ * Group 大文件分片上传
+ * 
+ * @param appId - 应用 ID
+ * @param clientSecret - 应用密钥
+ * @param groupId - 群 openid
+ * @param filePath - 本地文件路径
+ * @param fileType - 文件类型（1=图片, 2=视频, 3=语音, 4=文件）
+ * @param options - 上传选项
+ * @returns 上传结果（包含 file_info 可直接用于发送消息）
+ */
+export async function chunkedUploadGroup(
+  appId: string,
+  clientSecret: string,
+  groupId: string,
+  filePath: string,
+  fileType: MediaFileType,
+  options?: ChunkedUploadOptions,
+): Promise<MediaUploadResponse> {
+  const prefix = options?.logPrefix ?? "[chunked-upload]";
+  const maxConcurrent = options?.maxConcurrent ?? MAX_CONCURRENT_PARTS;
+
+  // 1. 读取文件信息
+  const stat = await fs.promises.stat(filePath);
+  const fileSize = stat.size;
+  const fileName = filePath.split(/[/\\]/).pop() ?? "file";
+
+  console.log(`${prefix} Starting chunked upload (group): file=${fileName}, size=${formatFileSize(fileSize)}, type=${fileType}`);
+
+  // 2. 申请上传
+  const accessToken = await getAccessToken(appId, clientSecret);
+  const prepareResp = await groupUploadPrepare(accessToken, groupId, fileType, fileName, fileSize);
+  const { upload_id, block_size, parts } = prepareResp;
+
+  console.log(`${prefix} Upload prepared: upload_id=${upload_id}, block_size=${formatFileSize(block_size)}, parts=${parts.length}`);
+
+  // 3. 并行上传所有分片（带并发控制）
+  let completedParts = 0;
+  let uploadedBytes = 0;
+
+  const uploadPart = async (part: { index: number; presigned_url: string }): Promise<void> => {
+    const partIndex = part.index;
+    const offset = (partIndex - 1) * block_size;
+    const length = Math.min(block_size, fileSize - offset);
+
+    const partBuffer = await readFileChunk(filePath, offset, length);
+    const md5Hex = crypto.createHash("md5").update(partBuffer).digest("hex");
+
+    console.log(`${prefix} Part ${partIndex}/${parts.length}: uploading ${formatFileSize(length)} (offset=${offset}, md5=${md5Hex})`);
+
+    await putToPresignedUrl(part.presigned_url, partBuffer, prefix, partIndex, parts.length);
+
+    const token = await getAccessToken(appId, clientSecret);
+    await groupUploadPartFinish(token, groupId, upload_id, partIndex, md5Hex);
+
+    completedParts++;
+    uploadedBytes += length;
+    console.log(`${prefix} Part ${partIndex}/${parts.length}: completed (${completedParts}/${parts.length})`);
+
+    if (options?.onProgress) {
+      options.onProgress({
+        completedParts,
+        totalParts: parts.length,
+        uploadedBytes,
+        totalBytes: fileSize,
+      });
+    }
+  };
+
+  await runWithConcurrency(
+    parts.map(part => () => uploadPart(part)),
+    maxConcurrent,
+  );
+
+  console.log(`${prefix} All ${parts.length} parts uploaded successfully, completing upload...`);
+
+  // 4. 完成文件上传
+  const finalToken = await getAccessToken(appId, clientSecret);
+  const result = await groupCompleteUpload(finalToken, groupId, upload_id);
 
   console.log(`${prefix} Upload completed: file_uuid=${result.file_uuid}, ttl=${result.ttl}s`);
 

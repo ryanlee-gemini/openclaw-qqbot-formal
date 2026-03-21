@@ -607,6 +607,55 @@ export async function c2cCompleteUpload(
   );
 }
 
+/**
+ * 申请上传（Group）
+ * POST /v2/groups/{group_id}/upload_prepare
+ */
+export async function groupUploadPrepare(
+  accessToken: string,
+  groupId: string,
+  fileType: MediaFileType,
+  fileName: string,
+  fileSize: number,
+): Promise<UploadPrepareResponse> {
+  return apiRequest<UploadPrepareResponse>(
+    accessToken, "POST", `/v2/groups/${groupId}/upload_prepare`,
+    { file_type: fileType, file_name: fileName, file_size: fileSize },
+  );
+}
+
+/**
+ * 完成分片上传（Group）
+ * POST /v2/groups/{group_id}/upload_part_finish
+ */
+export async function groupUploadPartFinish(
+  accessToken: string,
+  groupId: string,
+  uploadId: string,
+  partIndex: number,
+  md5: string,
+): Promise<void> {
+  await apiRequest<Record<string, unknown>>(
+    accessToken, "POST", `/v2/groups/${groupId}/upload_part_finish`,
+    { upload_id: uploadId, part_index: partIndex, md5 },
+  );
+}
+
+/**
+ * 完成文件上传（Group）
+ * POST /v2/groups/{group_id}/files
+ */
+export async function groupCompleteUpload(
+  accessToken: string,
+  groupId: string,
+  uploadId: string,
+): Promise<MediaUploadResponse> {
+  return apiRequest<MediaUploadResponse>(
+    accessToken, "POST", `/v2/groups/${groupId}/files`,
+    { upload_id: uploadId },
+  );
+}
+
 export async function uploadC2CMedia(
   accessToken: string,
   openid: string,
