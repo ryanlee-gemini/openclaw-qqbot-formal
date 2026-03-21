@@ -97,7 +97,9 @@ export async function chunkedUploadC2C(
 
   // 3. 申请上传 → 获取 upload_id + block_size + 预签名链接
   const accessToken = await getAccessToken(appId, clientSecret);
+  console.log(`${prefix} >>> Calling c2cUploadPrepare(fileType=${fileType}, fileName=${fileName}, fileSize=${fileSize}, md5=${hashes.md5}, sha1=${hashes.sha1}, md5_10m=${hashes.md5_10m})`);
   const prepareResp = await c2cUploadPrepare(accessToken, userId, fileType, fileName, fileSize, hashes);
+  console.log(`${prefix} <<< c2cUploadPrepare response:`, JSON.stringify(prepareResp));
   const { upload_id, block_size, parts } = prepareResp;
 
   console.log(`${prefix} Upload prepared: upload_id=${upload_id}, block_size=${formatFileSize(block_size)}, parts=${parts.length}`);
@@ -125,7 +127,9 @@ export async function chunkedUploadC2C(
 
     // b. 通知开放平台分片上传完成（需要重新获取 token，避免长时间上传后 token 过期）
     const token = await getAccessToken(appId, clientSecret);
+    console.log(`${prefix} >>> Calling c2cUploadPartFinish(upload_id=${upload_id}, partIndex=${partIndex}, md5=${md5Hex})`);
     await c2cUploadPartFinish(token, userId, upload_id, partIndex, md5Hex);
+    console.log(`${prefix} <<< c2cUploadPartFinish(partIndex=${partIndex}) done`);
 
     // 更新进度
     completedParts++;
@@ -150,9 +154,11 @@ export async function chunkedUploadC2C(
 
   console.log(`${prefix} All ${parts.length} parts uploaded successfully, completing upload...`);
 
-  // 4. 完成文件上传
+  // 5. 完成文件上传
   const finalToken = await getAccessToken(appId, clientSecret);
+  console.log(`${prefix} >>> Calling c2cCompleteUpload(upload_id=${upload_id})`);
   const result = await c2cCompleteUpload(finalToken, userId, upload_id);
+  console.log(`${prefix} <<< c2cCompleteUpload response:`, JSON.stringify(result));
 
   console.log(`${prefix} Upload completed: file_uuid=${result.file_uuid}, ttl=${result.ttl}s`);
 
@@ -195,7 +201,9 @@ export async function chunkedUploadGroup(
 
   // 3. 申请上传
   const accessToken = await getAccessToken(appId, clientSecret);
+  console.log(`${prefix} >>> Calling groupUploadPrepare(fileType=${fileType}, fileName=${fileName}, fileSize=${fileSize}, md5=${hashes.md5}, sha1=${hashes.sha1}, md5_10m=${hashes.md5_10m})`);
   const prepareResp = await groupUploadPrepare(accessToken, groupId, fileType, fileName, fileSize, hashes);
+  console.log(`${prefix} <<< groupUploadPrepare response:`, JSON.stringify(prepareResp));
   const { upload_id, block_size, parts } = prepareResp;
 
   console.log(`${prefix} Upload prepared: upload_id=${upload_id}, block_size=${formatFileSize(block_size)}, parts=${parts.length}`);
@@ -217,7 +225,9 @@ export async function chunkedUploadGroup(
     await putToPresignedUrl(part.presigned_url, partBuffer, prefix, partIndex, parts.length);
 
     const token = await getAccessToken(appId, clientSecret);
+    console.log(`${prefix} >>> Calling groupUploadPartFinish(upload_id=${upload_id}, partIndex=${partIndex}, md5=${md5Hex})`);
     await groupUploadPartFinish(token, groupId, upload_id, partIndex, md5Hex);
+    console.log(`${prefix} <<< groupUploadPartFinish(partIndex=${partIndex}) done`);
 
     completedParts++;
     uploadedBytes += length;
@@ -240,9 +250,11 @@ export async function chunkedUploadGroup(
 
   console.log(`${prefix} All ${parts.length} parts uploaded successfully, completing upload...`);
 
-  // 4. 完成文件上传
+  // 5. 完成文件上传
   const finalToken = await getAccessToken(appId, clientSecret);
+  console.log(`${prefix} >>> Calling groupCompleteUpload(upload_id=${upload_id})`);
   const result = await groupCompleteUpload(finalToken, groupId, upload_id);
+  console.log(`${prefix} <<< groupCompleteUpload response:`, JSON.stringify(result));
 
   console.log(`${prefix} Upload completed: file_uuid=${result.file_uuid}, ttl=${result.ttl}s`);
 
