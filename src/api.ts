@@ -540,6 +540,16 @@ export interface MediaUploadResponse {
   ttl: number;
 }
 
+/** 申请上传时的文件哈希信息 */
+export interface UploadPrepareHashes {
+  /** 整个文件的 MD5（十六进制） */
+  md5: string;
+  /** 整个文件的 SHA1（十六进制） */
+  sha1: string;
+  /** 文件前 10002432 Bytes 的 MD5（十六进制）；文件不足该大小时为整文件 MD5 */
+  md5_10m: string;
+}
+
 /**
  * 申请上传（C2C）
  * POST /v2/users/{user_id}/upload_prepare
@@ -549,6 +559,7 @@ export interface MediaUploadResponse {
  * @param fileType - 业务类型（1=图片, 2=视频, 3=语音, 4=文件）
  * @param fileName - 文件名
  * @param fileSize - 文件大小（字节）
+ * @param hashes - 文件哈希信息（md5, sha1, md5_10m）
  * @returns 上传任务 ID、分块大小、分片预签名链接列表
  */
 export async function c2cUploadPrepare(
@@ -557,10 +568,11 @@ export async function c2cUploadPrepare(
   fileType: MediaFileType,
   fileName: string,
   fileSize: number,
+  hashes: UploadPrepareHashes,
 ): Promise<UploadPrepareResponse> {
   return apiRequest<UploadPrepareResponse>(
     accessToken, "POST", `/v2/users/${userId}/upload_prepare`,
-    { file_type: fileType, file_name: fileName, file_size: fileSize },
+    { file_type: fileType, file_name: fileName, file_size: fileSize, md5: hashes.md5, sha1: hashes.sha1, md5_10m: hashes.md5_10m },
   );
 }
 
@@ -617,10 +629,11 @@ export async function groupUploadPrepare(
   fileType: MediaFileType,
   fileName: string,
   fileSize: number,
+  hashes: UploadPrepareHashes,
 ): Promise<UploadPrepareResponse> {
   return apiRequest<UploadPrepareResponse>(
     accessToken, "POST", `/v2/groups/${groupId}/upload_prepare`,
-    { file_type: fileType, file_name: fileName, file_size: fileSize },
+    { file_type: fileType, file_name: fileName, file_size: fileSize, md5: hashes.md5, sha1: hashes.sha1, md5_10m: hashes.md5_10m },
   );
 }
 

@@ -18,6 +18,7 @@ import * as fs from "node:fs";
 import {
   type MediaFileType,
   type UploadPrepareResponse,
+  type UploadPrepareHashes,
   type MediaUploadResponse,
   c2cUploadPrepare,
   c2cUploadPartFinish,
@@ -32,8 +33,8 @@ import { formatFileSize } from "./file-utils.js";
 /** 分片上传并发控制：最多同时上传 N 个分片 */
 const MAX_CONCURRENT_PARTS = 5;
 
-/** 单个分片上传超时（毫秒） */
-const PART_UPLOAD_TIMEOUT = 120_000;
+/** 单个分片上传超时（毫秒）— 5 分钟，兼容低带宽场景 */
+const PART_UPLOAD_TIMEOUT = 300_000;
 
 /** 单个分片上传最大重试次数 */
 const PART_UPLOAD_MAX_RETRIES = 2;
@@ -89,14 +90,19 @@ export async function chunkedUploadC2C(
 
   console.log(`${prefix} Starting chunked upload: file=${fileName}, size=${formatFileSize(fileSize)}, type=${fileType}`);
 
-  // 2. 申请上传 → 获取 upload_id + block_size + 预签名链接
+  // 2. 计算文件哈希（md5, sha1, md5_10m）
+  console.log(`${prefix} Computing file hashes...`);
+  const hashes = await computeFileHashes(filePath, fileSize);
+  console.log(`${prefix} File hashes: md5=${hashes.md5}, sha1=${hashes.sha1}, md5_10m=${hashes.md5_10m}`);
+
+  // 3. 申请上传 → 获取 upload_id + block_size + 预签名链接
   const accessToken = await getAccessToken(appId, clientSecret);
-  const prepareResp = await c2cUploadPrepare(accessToken, userId, fileType, fileName, fileSize);
+  const prepareResp = await c2cUploadPrepare(accessToken, userId, fileType, fileName, fileSize, hashes);
   const { upload_id, block_size, parts } = prepareResp;
 
   console.log(`${prefix} Upload prepared: upload_id=${upload_id}, block_size=${formatFileSize(block_size)}, parts=${parts.length}`);
 
-  // 3. 并行上传所有分片（带并发控制）
+  // 4. 并行上传所有分片（带并发控制）
   let completedParts = 0;
   let uploadedBytes = 0;
 
@@ -182,14 +188,19 @@ export async function chunkedUploadGroup(
 
   console.log(`${prefix} Starting chunked upload (group): file=${fileName}, size=${formatFileSize(fileSize)}, type=${fileType}`);
 
-  // 2. 申请上传
+  // 2. 计算文件哈希（md5, sha1, md5_10m）
+  console.log(`${prefix} Computing file hashes...`);
+  const hashes = await computeFileHashes(filePath, fileSize);
+  console.log(`${prefix} File hashes: md5=${hashes.md5}, sha1=${hashes.sha1}, md5_10m=${hashes.md5_10m}`);
+
+  // 3. 申请上传
   const accessToken = await getAccessToken(appId, clientSecret);
-  const prepareResp = await groupUploadPrepare(accessToken, groupId, fileType, fileName, fileSize);
+  const prepareResp = await groupUploadPrepare(accessToken, groupId, fileType, fileName, fileSize, hashes);
   const { upload_id, block_size, parts } = prepareResp;
 
   console.log(`${prefix} Upload prepared: upload_id=${upload_id}, block_size=${formatFileSize(block_size)}, parts=${parts.length}`);
 
-  // 3. 并行上传所有分片（带并发控制）
+  // 4. 并行上传所有分片（带并发控制）
   let completedParts = 0;
   let uploadedBytes = 0;
 
@@ -342,4 +353,56 @@ async function runWithConcurrency(
 
   // 等待所有已启动的任务完成（如有失败会抛出第一个错误）
   await Promise.all(results);
+}
+
+// ============ 文件哈希计算 ============
+
+/** 文件前 N 字节用于计算 md5_10m（与协议定义一致：10002432 Bytes） */
+const MD5_10M_SIZE = 10002432;
+
+/**
+ * 流式计算文件的 MD5、SHA1、md5_10m（前 10002432 Bytes 的 MD5）
+ * 只遍历文件一次，内存友好
+ */
+async function computeFileHashes(
+  filePath: string,
+  fileSize: number,
+): Promise<UploadPrepareHashes> {
+  return new Promise((resolve, reject) => {
+    const md5Hash = crypto.createHash("md5");
+    const sha1Hash = crypto.createHash("sha1");
+    const md5_10mHash = crypto.createHash("md5");
+
+    let bytesRead = 0;
+    const need10m = fileSize > MD5_10M_SIZE; // 文件超过阈值才需要单独计算 md5_10m
+
+    const stream = fs.createReadStream(filePath);
+
+    stream.on("data", (chunk: Buffer | string) => {
+      // ReadStream 默认 encoding=null，chunk 一定是 Buffer，但类型声明要求兼容 string
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      md5Hash.update(buf);
+      sha1Hash.update(buf);
+
+      if (need10m) {
+        const remaining = MD5_10M_SIZE - bytesRead;
+        if (remaining > 0) {
+          md5_10mHash.update(remaining >= buf.length ? buf : buf.subarray(0, remaining));
+        }
+      }
+
+      bytesRead += buf.length;
+    });
+
+    stream.on("end", () => {
+      const md5 = md5Hash.digest("hex");
+      const sha1 = sha1Hash.digest("hex");
+      // 文件不足 MD5_10M_SIZE 时，md5_10m 等于整文件 MD5
+      const md5_10m = need10m ? md5_10mHash.digest("hex") : md5;
+
+      resolve({ md5, sha1, md5_10m });
+    });
+
+    stream.on("error", reject);
+  });
 }
