@@ -22,6 +22,8 @@ interface QQBotChannelConfig {
   name?: string;
   imageServerBaseUrl?: string;
   markdownSupport?: boolean;
+  apiBase?: string;
+  tokenUrl?: string;
   allowFrom?: string[];
   accounts?: Record<string, {
     enabled?: boolean;
@@ -31,6 +33,8 @@ interface QQBotChannelConfig {
     name?: string;
     imageServerBaseUrl?: string;
     markdownSupport?: boolean;
+    apiBase?: string;
+    tokenUrl?: string;
     allowFrom?: string[];
   }>;
 }

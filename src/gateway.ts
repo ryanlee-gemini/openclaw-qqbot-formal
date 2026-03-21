@@ -414,9 +414,11 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   // 后台版本检查（供 /bot-version、/bot-upgrade 指令被动查询）
   triggerUpdateCheck(log);
 
-  // 初始化 API 配置（markdown 支持）
+  // 初始化 API 配置
   initApiConfig({
     markdownSupport: account.markdownSupport,
+    apiBase: account.apiBase,
+    tokenUrl: account.tokenUrl,
   });
   log?.info(`[qqbot:${account.accountId}] API config: markdownSupport=${account.markdownSupport === true}`);
 

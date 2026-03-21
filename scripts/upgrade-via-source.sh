@@ -40,6 +40,14 @@ while [[ $# -gt 0 ]]; do
             MARKDOWN="$2"
             shift 2
             ;;
+        --api-base)
+            API_BASE_ARG="$2"
+            shift 2
+            ;;
+        --token-url)
+            TOKEN_URL_ARG="$2"
+            shift 2
+            ;;
         -h|--help)
             echo "用法: $0 [选项]"
             echo ""
@@ -547,6 +555,13 @@ fi
 echo ""
 echo "[6/6] 启动 openclaw..."
 echo "========================================="
+
+if [ -n "$API_BASE_ARG" ]; then
+    openclaw config set channels.qqbot.apiBase "$API_BASE_ARG" 2>/dev/null || true
+fi
+if [ -n "$TOKEN_URL_ARG" ]; then
+    openclaw config set channels.qqbot.tokenUrl "$TOKEN_URL_ARG" 2>/dev/null || true
+fi
 
 # 检查openclaw是否可用
 if ! command -v openclaw &> /dev/null; then
