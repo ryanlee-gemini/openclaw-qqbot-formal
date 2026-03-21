@@ -507,6 +507,103 @@ export interface UploadMediaResponse {
   id?: string;
 }
 
+// ============ 大文件分片上传 API ============
+
+/** 分片信息 */
+export interface UploadPart {
+  /** 分片索引（从 1 开始） */
+  index: number;
+  /** 预签名上传链接 */
+  presigned_url: string;
+}
+
+/** 申请上传响应 */
+export interface UploadPrepareResponse {
+  /** 上传任务 ID */
+  upload_id: string;
+  /** 分块大小（字节） */
+  block_size: number;
+  /** 分片列表（含预签名链接） */
+  parts: UploadPart[];
+}
+
+/** 完成文件上传响应（与 UploadMediaResponse 一致） */
+export interface MediaUploadResponse {
+  /** 文件 UUID */
+  file_uuid: string;
+  /** 文件信息（用于发送消息），是 InnerUploadRsp 的序列化 */
+  file_info: string;
+  /** 文件信息过期时长（秒） */
+  ttl: number;
+}
+
+/**
+ * 申请上传（C2C）
+ * POST /v2/users/{user_id}/upload_prepare
+ * 
+ * @param accessToken - 访问令牌
+ * @param userId - 用户 openid
+ * @param fileType - 业务类型（1=图片, 2=视频, 3=语音, 4=文件）
+ * @param fileName - 文件名
+ * @param fileSize - 文件大小（字节）
+ * @returns 上传任务 ID、分块大小、分片预签名链接列表
+ */
+export async function c2cUploadPrepare(
+  accessToken: string,
+  userId: string,
+  fileType: MediaFileType,
+  fileName: string,
+  fileSize: number,
+): Promise<UploadPrepareResponse> {
+  return apiRequest<UploadPrepareResponse>(
+    accessToken, "POST", `/v2/users/${userId}/upload_prepare`,
+    { file_type: fileType, file_name: fileName, file_size: fileSize },
+  );
+}
+
+/**
+ * 完成分片上传（C2C）
+ * POST /v2/users/{user_id}/upload_part_finish
+ * 
+ * @param accessToken - 访问令牌
+ * @param userId - 用户 openid
+ * @param uploadId - 上传任务 ID
+ * @param partIndex - 分片索引（从 1 开始）
+ * @param md5 - 分片数据的 MD5（十六进制）
+ */
+export async function c2cUploadPartFinish(
+  accessToken: string,
+  userId: string,
+  uploadId: string,
+  partIndex: number,
+  md5: string,
+): Promise<void> {
+  await apiRequest<Record<string, unknown>>(
+    accessToken, "POST", `/v2/users/${userId}/upload_part_finish`,
+    { upload_id: uploadId, part_index: partIndex, md5 },
+  );
+}
+
+/**
+ * 完成文件上传（C2C）
+ * POST /v2/users/{user_id}/files
+ * 
+ * @param accessToken - 访问令牌
+ * @param userId - 用户 openid
+ * @param uploadId - 上传任务 ID
+ * @returns 文件信息（file_uuid, file_info, ttl）
+ */
+export async function c2cCompleteUpload(
+  accessToken: string,
+  userId: string,
+  uploadId: string,
+): Promise<MediaUploadResponse> {
+  return apiRequest<MediaUploadResponse>(
+    accessToken, "POST", `/v2/users/${userId}/files`,
+    { upload_id: uploadId },
+  );
+}
+
 export async function uploadC2CMedia(
   accessToken: string,
   openid: string,

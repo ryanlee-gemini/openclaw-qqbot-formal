@@ -20,10 +20,13 @@ import {
   sendGroupVideoMessage,
   sendC2CFileMessage,
   sendGroupFileMessage,
+  sendC2CMediaMessage,
+  MediaFileType,
 } from "./api.js";
 import { isAudioFile, audioFileToSilkBase64, waitForFile, shouldTranscodeVoice } from "./utils/audio-convert.js";
 import { normalizeMediaTags } from "./utils/media-tags.js";
-import { checkFileSize, readFileAsync, fileExistsAsync, isLargeFile, formatFileSize } from "./utils/file-utils.js";
+import { checkFileSize, readFileAsync, fileExistsAsync, isLargeFile, formatFileSize, MAX_UPLOAD_SIZE, getFileSizeAsync } from "./utils/file-utils.js";
+import { chunkedUploadC2C } from "./utils/chunked-upload.js";
 import { isLocalPath as isLocalFilePath, normalizePath, sanitizeFileName, getQQBotDataDir } from "./utils/platform.js";
 import { downloadFile } from "./image-server.js";
 
@@ -571,21 +574,52 @@ async function sendVideoFromLocal(ctx: MediaTargetContext, mediaPath: string, pr
   if (!(await fileExistsAsync(mediaPath))) {
     return { channel: "qqbot", error: "Video not found" };
   }
-  const sizeCheck = checkFileSize(mediaPath);
-  if (!sizeCheck.ok) {
-    return { channel: "qqbot", error: sizeCheck.error! };
+
+  const fileSize = await getFileSizeAsync(mediaPath);
+
+  // 超过上限直接拒绝
+  if (fileSize > MAX_UPLOAD_SIZE) {
+    return { channel: "qqbot", error: `视频过大 (${formatFileSize(fileSize)})，上传限制为 ${formatFileSize(MAX_UPLOAD_SIZE)}` };
   }
 
+  // ============ C2C：统一走分片上传 ============
+  if (ctx.targetType === "c2c") {
+    console.log(`${prefix} sendVideoMsg: c2c chunked upload (${formatFileSize(fileSize)})`);
+    try {
+      const { appId, clientSecret } = ctx.account;
+      if (!appId || !clientSecret) {
+        return { channel: "qqbot", error: "QQBot not configured (missing appId or clientSecret)" };
+      }
+
+      const uploadResult = await chunkedUploadC2C(
+        appId, clientSecret, ctx.targetId, mediaPath, MediaFileType.VIDEO,
+        {
+          logPrefix: `${prefix} [chunked]`,
+          onProgress: (progress) => {
+            console.log(`${prefix} sendVideoMsg: chunked upload progress ${progress.completedParts}/${progress.totalParts} parts, ${formatFileSize(progress.uploadedBytes)}/${formatFileSize(progress.totalBytes)}`);
+          },
+        },
+      );
+
+      const token = await getToken(ctx.account);
+      const r = await sendC2CMediaMessage(token, ctx.targetId, uploadResult.file_info, ctx.replyToId, undefined,
+        { mediaType: "video", mediaLocalPath: mediaPath });
+      return { channel: "qqbot", messageId: r.id, timestamp: r.timestamp };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`${prefix} sendVideoMsg: chunked upload failed: ${msg}`);
+      return { channel: "qqbot", error: `分片上传失败: ${msg}` };
+    }
+  }
+
+  // ============ Group / Channel：Base64 上传 ============
   const fileBuffer = await readFileAsync(mediaPath);
   const videoBase64 = fileBuffer.toString("base64");
   console.log(`${prefix} sendVideoMsg: local video (${formatFileSize(fileBuffer.length)})`);
 
   try {
     const token = await getToken(ctx.account);
-    if (ctx.targetType === "c2c") {
-      const r = await sendC2CVideoMessage(token, ctx.targetId, undefined, videoBase64, ctx.replyToId, undefined, mediaPath);
-      return { channel: "qqbot", messageId: r.id, timestamp: r.timestamp };
-    } else if (ctx.targetType === "group") {
+    if (ctx.targetType === "group") {
       const r = await sendGroupVideoMessage(token, ctx.targetId, undefined, videoBase64, ctx.replyToId);
       return { channel: "qqbot", messageId: r.id, timestamp: r.timestamp };
     } else {
@@ -666,23 +700,56 @@ async function sendDocumentFromLocal(ctx: MediaTargetContext, mediaPath: string,
   if (!(await fileExistsAsync(mediaPath))) {
     return { channel: "qqbot", error: "File not found" };
   }
-  const sizeCheck = checkFileSize(mediaPath);
-  if (!sizeCheck.ok) {
-    return { channel: "qqbot", error: sizeCheck.error! };
-  }
-  const fileBuffer = await readFileAsync(mediaPath);
-  if (fileBuffer.length === 0) {
+
+  const fileSize = await getFileSizeAsync(mediaPath);
+  if (fileSize === 0) {
     return { channel: "qqbot", error: `文件内容为空: ${mediaPath}` };
   }
+
+  // 超过上限直接拒绝
+  if (fileSize > MAX_UPLOAD_SIZE) {
+    return { channel: "qqbot", error: `文件过大 (${formatFileSize(fileSize)})，上传限制为 ${formatFileSize(MAX_UPLOAD_SIZE)}` };
+  }
+
+  // ============ C2C：统一走分片上传 ============
+  if (ctx.targetType === "c2c") {
+    console.log(`${prefix} sendDocument: c2c chunked upload (${formatFileSize(fileSize)})`);
+    try {
+      const { appId, clientSecret } = ctx.account;
+      if (!appId || !clientSecret) {
+        return { channel: "qqbot", error: "QQBot not configured (missing appId or clientSecret)" };
+      }
+
+      const uploadResult = await chunkedUploadC2C(
+        appId, clientSecret, ctx.targetId, mediaPath, MediaFileType.FILE,
+        {
+          logPrefix: `${prefix} [chunked]`,
+          onProgress: (progress) => {
+            console.log(`${prefix} sendDocument: chunked upload progress ${progress.completedParts}/${progress.totalParts} parts, ${formatFileSize(progress.uploadedBytes)}/${formatFileSize(progress.totalBytes)}`);
+          },
+        },
+      );
+
+      // 分片上传完成，拿到 file_info，用它发送消息
+      const token = await getToken(ctx.account);
+      const r = await sendC2CMediaMessage(token, ctx.targetId, uploadResult.file_info, ctx.replyToId, undefined,
+        { mediaType: "file", mediaLocalPath: mediaPath });
+      return { channel: "qqbot", messageId: r.id, timestamp: r.timestamp };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`${prefix} sendDocument: chunked upload failed: ${msg}`);
+      return { channel: "qqbot", error: `分片上传失败: ${msg}` };
+    }
+  }
+
+  // ============ Group / Channel：Base64 上传 ============
+  const fileBuffer = await readFileAsync(mediaPath);
   const fileBase64 = fileBuffer.toString("base64");
   console.log(`${prefix} sendDocument: local file (${formatFileSize(fileBuffer.length)})`);
 
   try {
     const token = await getToken(ctx.account);
-    if (ctx.targetType === "c2c") {
-      const r = await sendC2CFileMessage(token, ctx.targetId, fileBase64, undefined, ctx.replyToId, fileName, mediaPath);
-      return { channel: "qqbot", messageId: r.id, timestamp: r.timestamp };
-    } else if (ctx.targetType === "group") {
+    if (ctx.targetType === "group") {
       const r = await sendGroupFileMessage(token, ctx.targetId, fileBase64, undefined, ctx.replyToId, fileName);
       return { channel: "qqbot", messageId: r.id, timestamp: r.timestamp };
     } else {
