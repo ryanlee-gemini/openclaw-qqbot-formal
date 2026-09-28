@@ -50,7 +50,7 @@ function resolveSTTConfig(cfg: Record<string, unknown>): STTConfig | null {
     const providerCfg = c?.models?.providers?.[providerId];
     const baseUrl: string | undefined = channelStt?.baseUrl || providerCfg?.baseUrl;
     const apiKey: string | undefined = channelStt?.apiKey || providerCfg?.apiKey;
-    const model: string = channelStt?.model || "whisper-1";
+    const model: string = channelStt?.model || "gpt-transcribe";
     if (baseUrl && apiKey) {
       return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey, model };
     }
@@ -63,7 +63,7 @@ function resolveSTTConfig(cfg: Record<string, unknown>): STTConfig | null {
     const providerCfg = c?.models?.providers?.[providerId];
     const baseUrl: string | undefined = audioModelEntry?.baseUrl || providerCfg?.baseUrl;
     const apiKey: string | undefined = audioModelEntry?.apiKey || providerCfg?.apiKey;
-    const model: string = audioModelEntry?.model || "whisper-1";
+    const model: string = audioModelEntry?.model || "gpt-transcribe";
     if (baseUrl && apiKey) {
       return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey, model };
     }
